@@ -5,9 +5,10 @@ import { coverUrl, fmtTime } from "../lib/api";
 import { VuMeter } from "./VuMeter";
 
 export const MiniPlayer = () => {
-    const { mix, playing, currentTime, duration, toggle, seek, seekRelative, volume, muted, setVolume, setMuted, currentTrackIndex } = usePlayer();
+    const { mix, playing, currentTime, duration, toggle, seek, seekRelative, volume, muted, setVolume, setMuted, currentTrackIndex, trackArtwork } = usePlayer();
     if (!mix) return null;
     const cover = coverUrl(mix);
+    const displayCover = trackArtwork || cover;
     const progress = duration ? (currentTime / duration) * 100 : 0;
     const currentTrack = mix.tracks?.[currentTrackIndex];
 
@@ -25,10 +26,19 @@ export const MiniPlayer = () => {
                 <Link to={`/mix/${mix.id}`} className="flex items-center gap-3 min-w-0 group">
                     <div className="relative w-14 h-14 sm:w-16 sm:h-16 bg-black border border-[#1A1D2E] overflow-hidden shrink-0">
                         {cover ? (
-                            <img src={cover} alt={mix.title} className="w-full h-full object-cover" />
+                            <img src={cover} alt={mix.title} className="absolute inset-0 w-full h-full object-cover" />
                         ) : (
-                            <div className="w-full h-full grid-bg" />
+                            <div className="absolute inset-0 grid-bg" />
                         )}
+                        {trackArtwork ? (
+                            <img
+                                key={trackArtwork}
+                                src={trackArtwork}
+                                alt="track art"
+                                className="absolute inset-0 w-full h-full object-cover"
+                                style={{ animation: "fadeIn 0.6s ease-in-out forwards", opacity: 0 }}
+                            />
+                        ) : null}
                         {playing && (
                             <div className="absolute inset-0 flex items-end justify-center gap-0.5 p-1.5 bg-black/30">
                                 {[0, 1, 2, 3].map((i) => (

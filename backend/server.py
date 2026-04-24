@@ -17,6 +17,7 @@ import logging
 import mimetypes
 import aiofiles
 import shutil
+import httpx
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -157,6 +158,77 @@ def parse_cue(content: str) -> List[Track]:
     if current is not None:
         tracks.append(Track(**current))
     return tracks
+
+
+# ===== iTunes Search artwork lookup (cached) =====
+ITUNES_SEARCH_URL = "https://itunes.apple.com/search"
+
+
+def _normalize_key(artist: str, title: str) -> str:
+    def clean(s: str) -> str:
+        s = (s or "").lower().strip()
+        # strip common noise: "(original mix)", "[remastered]", featured, etc.
+        s = re.sub(r"\(.*?\)|\[.*?\]", " ", s)
+        s = re.sub(r"\s+feat\.?\s+.*$", "", s)
+        s = re.sub(r"\s+ft\.?\s+.*$", "", s)
+        s = re.sub(r"[^\w\s-]", " ", s)
+        s = re.sub(r"\s+", " ", s).strip()
+        return s
+    return f"{clean(artist)}|{clean(title)}"
+
+
+async def _lookup_itunes(artist: str, title: str) -> Optional[str]:
+    q_parts = [p for p in (artist or "", title or "") if p]
+    if not q_parts:
+        return None
+    term = " ".join(q_parts)
+    params = {"term": term, "media": "music", "entity": "musicTrack", "limit": 5}
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.get(ITUNES_SEARCH_URL, params=params)
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+    except Exception as e:
+        logging.getLogger("mixdeck").warning("iTunes lookup failed: %s", e)
+        return None
+    results = data.get("results") or []
+    if not results:
+        return None
+    # pick first with artwork
+    for r in results:
+        url = r.get("artworkUrl100") or r.get("artworkUrl60")
+        if url:
+            # upgrade to 600x600
+            return re.sub(r"/\d+x\d+(bb)?(-\d+)?\.(jpg|png|jpeg)",
+                          "/600x600bb.jpg", url)
+    return None
+
+
+@api_router.get("/tracks/artwork")
+async def track_artwork(artist: str = "", title: str = ""):
+    """Return artwork URL for a track, cached in Mongo."""
+    artist = (artist or "").strip()
+    title = (title or "").strip()
+    if not artist and not title:
+        return {"url": None}
+    key = _normalize_key(artist, title)
+    cached = await db.track_artwork.find_one({"key": key}, {"_id": 0})
+    if cached is not None:
+        return {"url": cached.get("url"), "cached": True}
+    url = await _lookup_itunes(artist, title)
+    await db.track_artwork.update_one(
+        {"key": key},
+        {"$set": {
+            "key": key,
+            "url": url,
+            "artist": artist,
+            "title": title,
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+        }},
+        upsert=True,
+    )
+    return {"url": url, "cached": False}
 
 
 # ===== Routes =====

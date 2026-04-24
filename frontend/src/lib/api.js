@@ -18,6 +18,8 @@ export const api = {
     incPlay: (id) => client.post(`/mixes/${id}/play`),
     listGenres: () => client.get("/mixes/genres").then((r) => r.data),
     seedDemo: () => client.post("/seed-demo").then((r) => r.data),
+    trackArtwork: (artist, title) =>
+        client.get("/tracks/artwork", { params: { artist: artist || "", title: title || "" } }).then((r) => r.data),
 
     login: (password) => client.post("/auth/login", { password }).then((r) => r.data),
     verify: () => client.get("/auth/verify").then((r) => r.data),

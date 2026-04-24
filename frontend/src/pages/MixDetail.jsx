@@ -48,6 +48,8 @@ export const MixDetail = () => {
     }
 
     const cover = coverUrl(mix) || "https://images.unsplash.com/photo-1769120061986-a077f35b2569?w=800&q=80";
+    const liveArt = isCurrent ? player.trackArtwork : null;
+    const displayArt = liveArt || cover;
     const playable = !!(mix.audio_filename || mix.audio_url);
     const onPlayAll = () => {
         if (!playable) return;
@@ -91,8 +93,27 @@ export const MixDetail = () => {
                 {/* LEFT: cover + meta */}
                 <div className="lg:col-span-4 space-y-4">
                     <div className="relative aspect-square border border-[#1A1D2E] overflow-hidden bg-black scanlines">
-                        <img src={cover} alt={mix.title} className="w-full h-full object-cover" />
+                        <img
+                            src={cover}
+                            alt={mix.title}
+                            className="absolute inset-0 w-full h-full object-cover"
+                        />
+                        {liveArt ? (
+                            <img
+                                key={liveArt}
+                                src={liveArt}
+                                alt="track art"
+                                className="absolute inset-0 w-full h-full object-cover animate-[fade_0.6s_ease-in-out_forwards] opacity-0"
+                                style={{ animation: "fadeIn 0.6s ease-in-out forwards" }}
+                            />
+                        ) : null}
                         <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent pointer-events-none" />
+                        {liveArt && (
+                            <div className="absolute top-2 left-2 label bg-black/70 border border-neon-green/40 px-1.5 py-0.5 text-neon-green glow-green flex items-center gap-1" data-testid="now-playing-art-badge">
+                                <span className="w-1.5 h-1.5 rounded-full bg-neon-green animate-pulse" />
+                                NOW PLAYING ART
+                            </div>
+                        )}
                     </div>
                     <div className="space-y-3">
                         <div>

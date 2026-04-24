@@ -14,6 +14,8 @@ export const PlayerProvider = ({ children }) => {
     const [muted, setMuted] = useState(false);
     const [analyser, setAnalyser] = useState(null);
     const [audioCtx, setAudioCtx] = useState(null);
+    const [trackArtwork, setTrackArtwork] = useState(null);
+    const [trackArtworkLoading, setTrackArtworkLoading] = useState(false);
 
     const audioRef = useRef(null);
     const sourceRef = useRef(null);
@@ -147,6 +149,30 @@ export const PlayerProvider = ({ children }) => {
         return idx;
     }, [mix, currentTime]);
 
+    // Auto-fetch track artwork from iTunes as tracks change
+    useEffect(() => {
+        const tr = mix?.tracks?.[currentTrackIndex];
+        if (!tr || (!tr.title && !tr.artist)) {
+            setTrackArtwork(null);
+            return;
+        }
+        let cancelled = false;
+        setTrackArtworkLoading(true);
+        api.trackArtwork(tr.artist || mix.artist || "", tr.title || "")
+            .then((res) => {
+                if (!cancelled) setTrackArtwork(res?.url || null);
+            })
+            .catch(() => {
+                if (!cancelled) setTrackArtwork(null);
+            })
+            .finally(() => {
+                if (!cancelled) setTrackArtworkLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [mix?.id, currentTrackIndex]);
+
     const value = {
         mix,
         playing,
@@ -157,6 +183,8 @@ export const PlayerProvider = ({ children }) => {
         analyser,
         audioRef,
         currentTrackIndex,
+        trackArtwork,
+        trackArtworkLoading,
         loadMix,
         toggle,
         seek,
