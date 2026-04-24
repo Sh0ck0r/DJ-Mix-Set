@@ -1,54 +1,44 @@
-import { useEffect } from "react";
+import { useState } from "react";
 import "@/App.css";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
-
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
-
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
-
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
-
-  return (
-    <div>
-      <header className="App-header">
-        <a
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
-    </div>
-  );
-};
+import { Toaster } from "sonner";
+import { PlayerProvider } from "./contexts/PlayerContext";
+import { Navbar } from "./components/Navbar";
+import { MiniPlayer } from "./components/MiniPlayer";
+import { Library } from "./pages/Library";
+import { MixDetail } from "./pages/MixDetail";
+import { AdminLogin } from "./pages/AdminLogin";
+import { AdminDashboard } from "./pages/AdminDashboard";
 
 function App() {
-  return (
-    <div className="App">
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
-    </div>
-  );
+    const [search, setSearch] = useState("");
+    return (
+        <div className="App min-h-screen text-white">
+            <BrowserRouter>
+                <PlayerProvider>
+                    <Navbar onSearch={setSearch} />
+                    <main>
+                        <Routes>
+                            <Route path="/" element={<Library search={search} />} />
+                            <Route path="/mix/:id" element={<MixDetail />} />
+                            <Route path="/admin/login" element={<AdminLogin />} />
+                            <Route path="/admin" element={<AdminDashboard />} />
+                        </Routes>
+                    </main>
+                    <MiniPlayer />
+                    <Toaster
+                        theme="dark"
+                        position="top-right"
+                        toastOptions={{
+                            classNames: {
+                                toast: "!bg-[#0D0E15] !border !border-neon-cyan/30 !text-white !rounded-none !font-mono !text-xs !tracking-widest",
+                            },
+                        }}
+                    />
+                </PlayerProvider>
+            </BrowserRouter>
+        </div>
+    );
 }
 
 export default App;

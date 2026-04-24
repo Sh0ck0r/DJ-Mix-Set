@@ -1,0 +1,14 @@
+PERFORMER "DJ TEST"
+TITLE "TEST MIX"
+FILE "mix.mp3" MP3
+  TRACK 01 AUDIO
+    TITLE "Track One"
+    PERFORMER "Artist A"
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    TITLE "Track Two"
+    PERFORMER "Artist B"
+    INDEX 01 03:45:00
+  TRACK 03 AUDIO
+    TITLE "Track Three"
+    INDEX 01 08:12:30
