@@ -244,6 +244,9 @@ async def delete_mix(mix_id: str):
             fp = folder / fname
             if fp.exists():
                 fp.unlink()
+    cue_path = CUES_DIR / f"{mix_id}.cue"
+    if cue_path.exists():
+        cue_path.unlink()
     await db.mixes.delete_one({"id": mix_id})
     return {"ok": True}
 
