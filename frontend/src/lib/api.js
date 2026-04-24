@@ -49,6 +49,8 @@ export const api = {
             headers: { "Content-Type": "multipart/form-data" },
         }).then((r) => r.data);
     },
+    scanDirectory: (path, recursive = true, default_genre = "") =>
+        client.post("/admin/scan", { path, recursive, default_genre }, { timeout: 120000 }).then((r) => r.data),
     setDuration: (id, duration) => {
         const fd = new FormData();
         fd.append("duration", duration);

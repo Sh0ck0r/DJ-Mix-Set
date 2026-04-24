@@ -62,6 +62,8 @@ class Mix(BaseModel):
     cover_filename: Optional[str] = None
     audio_url: Optional[str] = None  # external streaming url alternative
     cover_url: Optional[str] = None  # external image url alternative
+    source_path: Optional[str] = None  # in-place reference (absolute filesystem path)
+    source_cover_path: Optional[str] = None  # in-place cover reference
     tracks: List[Track] = []
     play_count: int = 0
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -143,11 +145,11 @@ def parse_cue(content: str) -> List[Track]:
             continue
         m_title = CUE_TITLE_RE.match(line)
         if m_title:
-            current["title"] = m_title.group(1).strip()
+            current["title"] = m_title.group(1).strip().strip('"').strip()
             continue
         m_perf = CUE_PERFORMER_RE.match(line)
         if m_perf:
-            current["artist"] = m_perf.group(1).strip()
+            current["artist"] = m_perf.group(1).strip().strip('"').strip()
             continue
         m_idx = CUE_INDEX_RE.match(line)
         if m_idx and m_idx.group(1) == "01":
@@ -570,6 +572,11 @@ async def stream_audio(mix_id: str, request: Request):
         path = AUDIO_DIR / fname
         if path.exists():
             return _file_response_with_range(path, request)
+    sp = doc.get("source_path")
+    if sp:
+        path = Path(sp)
+        if path.exists() and path.is_file():
+            return _file_response_with_range(path, request)
     raise HTTPException(status_code=404, detail="Audio file not found")
 
 
@@ -583,7 +590,175 @@ async def get_cover(mix_id: str):
         path = COVERS_DIR / fname
         if path.exists():
             return FileResponse(path)
+    scp = doc.get("source_cover_path")
+    if scp:
+        path = Path(scp)
+        if path.exists() and path.is_file():
+            return FileResponse(path)
     raise HTTPException(status_code=404, detail="Cover not found")
+
+
+# ===== Bulk directory scan =====
+AUDIO_EXTS = {".mp3", ".flac", ".wav", ".m4a", ".ogg", ".aac", ".opus"}
+COVER_NAMES = ("cover", "folder", "front", "album")
+COVER_EXTS = (".jpg", ".jpeg", ".png", ".webp")
+
+
+class ScanRequest(BaseModel):
+    path: str
+    recursive: bool = True
+    default_genre: str = ""
+
+
+def _find_cue(audio: Path) -> Optional[Path]:
+    cue = audio.with_suffix(".cue")
+    if cue.exists():
+        return cue
+    # case-insensitive fallback
+    for sib in audio.parent.iterdir():
+        if sib.is_file() and sib.stem.lower() == audio.stem.lower() and sib.suffix.lower() == ".cue":
+            return sib
+    return None
+
+
+def _find_cover(audio: Path) -> Optional[Path]:
+    # 1. Same-name art: MixName.jpg
+    for ext in COVER_EXTS:
+        p = audio.with_suffix(ext)
+        if p.exists():
+            return p
+    # 2. Generic names in same folder
+    for name in COVER_NAMES:
+        for ext in COVER_EXTS:
+            p = audio.parent / f"{name}{ext}"
+            if p.exists():
+                return p
+            p = audio.parent / f"{name.upper()}{ext}"
+            if p.exists():
+                return p
+    return None
+
+
+def _extract_cue_header(content: str) -> tuple[str, str]:
+    """Return (title, performer) from the top-level cue header (before first TRACK)."""
+    title = ""
+    performer = ""
+    for raw in content.splitlines():
+        line = raw.strip()
+        if CUE_TRACK_RE.match(line):
+            break
+        m_title = CUE_TITLE_RE.match(line)
+        if m_title and not title:
+            title = m_title.group(1).strip().strip('"').strip()
+            continue
+        m_perf = CUE_PERFORMER_RE.match(line)
+        if m_perf and not performer:
+            performer = m_perf.group(1).strip().strip('"').strip()
+    return title, performer
+
+
+@api_router.post("/admin/scan", dependencies=[Depends(require_admin)])
+async def scan_directory(body: ScanRequest):
+    """Walk a directory and ingest every audio file (with optional matching .cue).
+
+    Idempotent: a file is skipped if a mix with the same source_path already exists.
+    Files are referenced in place — no copying, no disk duplication.
+    """
+    root = Path(body.path).expanduser().resolve()
+    if not root.exists() or not root.is_dir():
+        raise HTTPException(status_code=400, detail=f"Path does not exist or is not a directory: {root}")
+
+    # Collect audio files
+    audio_files: list[Path] = []
+    if body.recursive:
+        for p in root.rglob("*"):
+            if p.is_file() and p.suffix.lower() in AUDIO_EXTS:
+                audio_files.append(p)
+    else:
+        for p in root.iterdir():
+            if p.is_file() and p.suffix.lower() in AUDIO_EXTS:
+                audio_files.append(p)
+
+    added = []
+    skipped = []
+    failed = []
+
+    # Pre-fetch all existing source_paths for O(1) dup check
+    existing = set()
+    async for d in db.mixes.find({"source_path": {"$ne": None}}, {"source_path": 1, "_id": 0}):
+        if d.get("source_path"):
+            existing.add(d["source_path"])
+
+    for audio in sorted(audio_files):
+        try:
+            src = str(audio)
+            if src in existing:
+                skipped.append({"path": src, "reason": "already_ingested"})
+                continue
+
+            # default metadata from filename
+            title = audio.stem
+            artist = ""
+            tracks: list[dict] = []
+
+            cue = _find_cue(audio)
+            if cue:
+                try:
+                    content = cue.read_text(encoding="utf-8", errors="replace")
+                except UnicodeDecodeError:
+                    content = cue.read_text(encoding="latin-1", errors="replace")
+                cue_title, cue_performer = _extract_cue_header(content)
+                if cue_title:
+                    title = cue_title
+                if cue_performer:
+                    artist = cue_performer
+                tracks = [t.model_dump() for t in parse_cue(content)]
+
+            cover = _find_cover(audio)
+
+            mix = Mix(
+                title=title,
+                artist=artist,
+                genre=body.default_genre or "",
+                source_path=src,
+                source_cover_path=str(cover) if cover else None,
+                tracks=[Track(**t) for t in tracks],
+            )
+            doc = mix.model_dump()
+            await db.mixes.insert_one(doc)
+
+            # Persist the cue file for the record too (helps admin delete behavior)
+            if cue:
+                try:
+                    (CUES_DIR / f"{mix.id}.cue").write_text(
+                        cue.read_text(encoding="utf-8", errors="replace"), encoding="utf-8"
+                    )
+                except Exception:
+                    pass
+
+            added.append({
+                "id": mix.id,
+                "title": title,
+                "artist": artist,
+                "path": src,
+                "cue": bool(cue),
+                "tracks": len(tracks),
+                "cover": bool(cover),
+            })
+            existing.add(src)
+        except Exception as e:
+            failed.append({"path": str(audio), "error": str(e)})
+
+    return {
+        "scanned": len(audio_files),
+        "added_count": len(added),
+        "skipped_count": len(skipped),
+        "failed_count": len(failed),
+        "added": added,
+        "skipped": skipped,
+        "failed": failed,
+        "root": str(root),
+    }
 
 
 # ===== Demo seed =====

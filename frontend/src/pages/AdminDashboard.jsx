@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback } from "react";
 import { Navigate } from "react-router-dom";
 import { api, coverUrl, fmtTime } from "../lib/api";
-import { Upload, Plus, Trash2, FileAudio, FileText, Image as ImageIcon, Loader2, CheckCircle2 } from "lucide-react";
+import { Upload, Plus, Trash2, FileAudio, FileText, Image as ImageIcon, Loader2, CheckCircle2, Radar } from "lucide-react";
 import { toast } from "sonner";
+import { BulkScan } from "../components/BulkScan";
 
 const Field = ({ label, ...props }) => (
     <label className="block">
@@ -58,6 +59,7 @@ export const AdminDashboard = () => {
     const [mixes, setMixes] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showForm, setShowForm] = useState(false);
+    const [showScan, setShowScan] = useState(false);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -83,15 +85,33 @@ export const AdminDashboard = () => {
                     </h1>
                     <p className="label mt-1">// MANAGE YOUR DECK</p>
                 </div>
-                <button
-                    onClick={() => setShowForm((v) => !v)}
-                    data-testid="toggle-new-mix"
-                    className="bg-neon-cyan text-black font-display font-bold tracking-widest uppercase px-4 py-2.5 hover:bg-white transition-colors flex items-center gap-2 shadow-[0_0_20px_rgba(0,240,255,0.3)]"
-                >
-                    <Plus className="w-4 h-4" /> {showForm ? "CLOSE" : "NEW MIX"}
-                </button>
+                <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                        onClick={() => { setShowScan((v) => !v); if (!showScan) setShowForm(false); }}
+                        data-testid="toggle-bulk-scan"
+                        className={`font-display font-bold tracking-widest uppercase px-4 py-2.5 transition-colors flex items-center gap-2 border ${
+                            showScan
+                                ? "bg-neon-cyan text-black border-neon-cyan shadow-[0_0_20px_rgba(0,240,255,0.3)]"
+                                : "bg-transparent text-neon-cyan border-neon-cyan/40 hover:bg-neon-cyan/10"
+                        }`}
+                    >
+                        <Radar className="w-4 h-4" /> {showScan ? "CLOSE SCAN" : "BULK SCAN"}
+                    </button>
+                    <button
+                        onClick={() => { setShowForm((v) => !v); if (!showForm) setShowScan(false); }}
+                        data-testid="toggle-new-mix"
+                        className={`font-display font-bold tracking-widest uppercase px-4 py-2.5 transition-colors flex items-center gap-2 border ${
+                            showForm
+                                ? "bg-neon-cyan text-black border-neon-cyan shadow-[0_0_20px_rgba(0,240,255,0.3)]"
+                                : "bg-transparent text-neon-cyan border-neon-cyan/40 hover:bg-neon-cyan/10"
+                        }`}
+                    >
+                        <Plus className="w-4 h-4" /> {showForm ? "CLOSE" : "NEW MIX"}
+                    </button>
+                </div>
             </div>
 
+            {showScan && <BulkScan onScanned={load} />}
             {showForm && <NewMixForm onCreated={() => { setShowForm(false); load(); }} />}
 
             <h2 className="font-display font-bold text-sm uppercase tracking-widest mt-10 mb-3 text-zinc-400">
