@@ -30,6 +30,11 @@
 - Admin login + dashboard (drag-drop upload, inline file replacement, delete)
 - Demo seed (Synthwave mix + 4 tracks) shown first run
 
+## Implemented (2026-04)
+- **Per-track artwork auto-fetch** — iTunes Search API → MusicBrainz + Cover Art Archive fallback, cached in Mongo (`track_artwork` collection), returns `source` field (itunes/musicbrainz/null), `?refresh=1` forces re-lookup. Live crossfade on DECK cover + mini-player when track changes in the cue.
+- **Bulk directory scan** (`POST /api/admin/scan`) — recursively walks a server folder, ingests every audio + matching .cue by stem, references files in place via `source_path` (zero disk duplication), idempotent re-scans skip existing paths, auto-detects cover art siblings (`cover.jpg`, `folder.jpg`, `{stem}.jpg`), pulls TITLE/PERFORMER from cue header. Streaming + cover endpoints extended with source_path fallback (preserves HTTP Range support). DELETE preserves original files on disk. 32/32 backend tests pass.
+- **Admin UI** — new "BULK SCAN" panel with path input (remembered in localStorage), recursive toggle, default-genre field, live results table (imported / skipped / failed breakdown with track counts + cue/cover badges).
+
 ## Tech / Libraries
 - Backend: fastapi, motor, pydantic, PyJWT, aiofiles, python-multipart
 - Frontend: react-router-dom, axios, sonner, lucide-react, tailwindcss
@@ -37,10 +42,12 @@
 - Colors: void #050505, surface #0D0E15, cyan #00F0FF, green #39FF14, red #FF003C
 
 ## Backlog (P0/P1/P2)
-- P1: Bulk FTP-directory scan endpoint (admin triggers a re-scan of a folder of mp3+cue pairs)
+- P1: Discogs tier-3 artwork fallback (trance/electronic whitelabel coverage beyond iTunes + MusicBrainz)
 - P1: Edit mix metadata inline (currently requires delete + re-upload)
+- P1: Background/streaming scan progress (for very large libraries 1000+ files)
+- P2: RSS / podcast feed auto-export so listeners can subscribe in Apple Podcasts / Overcast
+- P2: Share links with deep-seek (`?t=00:12:34`)
+- P2: "Also in this genre" row on mix detail
 - P2: Drag-to-reorder tracks, manual track list editor
 - P2: Waveform from real audio peaks (decode audio to canvas once instead of deterministic synthetic waveform)
-- P2: Share links with deep-seek (?t=00:12:34)
 - P2: Download-for-offline / mix archive zip
-- P2: RSS / podcast feed auto-export so listeners can subscribe in Apple Podcasts / Overcast
