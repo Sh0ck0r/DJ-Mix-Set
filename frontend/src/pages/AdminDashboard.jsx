@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { Navigate } from "react-router-dom";
 import { api, coverUrl, fmtTime } from "../lib/api";
-import { Upload, Plus, Trash2, FileAudio, FileText, Image as ImageIcon, Loader2, CheckCircle2, Radar } from "lucide-react";
+import { Upload, Plus, Trash2, FileAudio, FileText, Image as ImageIcon, Loader2, CheckCircle2, Radar, Activity, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { BulkScan } from "../components/BulkScan";
 
@@ -218,7 +218,30 @@ const NewMixForm = ({ onCreated }) => {
 
 const AdminMixRow = ({ mix, onChanged }) => {
     const [busy, setBusy] = useState(false);
+    const [status, setStatus] = useState(mix.analysis_status || "none");
     const cover = coverUrl(mix);
+
+    useEffect(() => {
+        setStatus(mix.analysis_status || "none");
+    }, [mix.analysis_status]);
+
+    // Poll while running
+    useEffect(() => {
+        if (status !== "pending" && status !== "running") return;
+        const iv = setInterval(async () => {
+            try {
+                const s = await api.analysisStatus(mix.id);
+                setStatus(s.status);
+                if (s.status === "done" || s.status === "failed") {
+                    clearInterval(iv);
+                    onChanged?.();
+                }
+            } catch {
+                clearInterval(iv);
+            }
+        }, 2500);
+        return () => clearInterval(iv);
+    }, [status, mix.id, onChanged]);
 
     const onUpload = async (kind, file) => {
         if (!file) return;
@@ -247,18 +270,57 @@ const AdminMixRow = ({ mix, onChanged }) => {
         }
     };
 
+    const analyze = async () => {
+        try {
+            await api.analyzeMix(mix.id);
+            setStatus("pending");
+            toast.message("ANALYSIS QUEUED", { description: "BPM + key detection running…" });
+        } catch (err) {
+            toast.error(err.response?.data?.detail || "Analyze failed");
+        }
+    };
+
+    const trackCount = mix.tracks?.length || 0;
+    const analyzedCount = (mix.tracks || []).filter((t) => t.bpm).length;
+
     return (
-        <div className="border border-[#1A1D2E] p-3 flex items-center gap-4 hover:border-neon-cyan/40 transition-colors">
+        <div className="border border-[#1A1D2E] p-3 flex items-center gap-4 hover:border-neon-cyan/40 transition-colors" data-testid="admin-mix-row">
             <div className="w-14 h-14 bg-black border border-[#1A1D2E] overflow-hidden shrink-0">
                 {cover ? <img src={cover} alt={mix.title} className="w-full h-full object-cover" /> : <div className="w-full h-full grid-bg" />}
             </div>
             <div className="flex-1 min-w-0">
-                <div className="font-display font-bold text-white truncate">{mix.title}</div>
+                <div className="font-display font-bold text-white truncate flex items-center gap-2">
+                    {mix.title}
+                    {mix.bpm ? (
+                        <span className="label px-1.5 py-0.5 border border-neon-green/40 text-neon-green">{mix.bpm} BPM</span>
+                    ) : null}
+                    {mix.camelot ? (
+                        <span className="label px-1.5 py-0.5 border border-neon-cyan/40 text-neon-cyan" title={mix.key || ""}>
+                            {mix.camelot}
+                        </span>
+                    ) : null}
+                </div>
                 <div className="label truncate">
-                    {mix.artist || "—"} • {mix.genre || "—"} • {mix.tracks?.length || 0} TRX • {fmtTime(mix.duration || 0)}
+                    {mix.artist || "—"} • {mix.genre || "—"} • {trackCount} TRX
+                    {analyzedCount > 0 && ` (${analyzedCount} ANALYZED)`}
+                    {" "}• {fmtTime(mix.duration || 0)}
                 </div>
             </div>
             <div className="flex items-center gap-1.5">
+                <AnalysisBadge status={status} />
+                <button
+                    onClick={analyze}
+                    disabled={status === "pending" || status === "running"}
+                    data-testid="analyze-mix-button"
+                    className="w-9 h-9 border border-[#1A1D2E] hover:border-neon-green hover:text-neon-green text-zinc-400 flex items-center justify-center transition-colors disabled:opacity-40"
+                    title="Analyze BPM + Key"
+                >
+                    {status === "running" || status === "pending" ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-neon-green" />
+                    ) : (
+                        <Activity className="w-4 h-4" />
+                    )}
+                </button>
                 <UploadIcon icon={<FileAudio />} accept=".mp3,.flac,.wav,.m4a,.ogg,audio/*" onFile={(f) => onUpload("audio", f)} title="Replace audio" />
                 <UploadIcon icon={<FileText />} accept=".cue,text/*" onFile={(f) => onUpload("cue", f)} title="Upload cue" />
                 <UploadIcon icon={<ImageIcon />} accept="image/*" onFile={(f) => onUpload("cover", f)} title="Replace cover" />
@@ -274,6 +336,18 @@ const AdminMixRow = ({ mix, onChanged }) => {
             </div>
         </div>
     );
+};
+
+const AnalysisBadge = ({ status }) => {
+    if (status === "done")
+        return <span className="label px-2 py-1 border border-neon-green/40 text-neon-green flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> ANALYZED</span>;
+    if (status === "running")
+        return <span className="label px-2 py-1 border border-neon-cyan/40 text-neon-cyan flex items-center gap-1 animate-pulse"><Activity className="w-3 h-3" /> ANALYZING</span>;
+    if (status === "pending")
+        return <span className="label px-2 py-1 border border-neon-cyan/40 text-neon-cyan flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> QUEUED</span>;
+    if (status === "failed")
+        return <span className="label px-2 py-1 border border-neon-red/40 text-neon-red flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> FAILED</span>;
+    return null;
 };
 
 const UploadIcon = ({ icon, accept, onFile, title }) => (

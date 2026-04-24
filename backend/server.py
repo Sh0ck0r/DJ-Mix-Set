@@ -18,6 +18,9 @@ import mimetypes
 import aiofiles
 import shutil
 import httpx
+import asyncio
+
+from audio_analysis import read_audio_info, analyze_segment
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -48,6 +51,9 @@ class Track(BaseModel):
     title: str
     artist: str = ""
     start_seconds: float = 0.0
+    bpm: Optional[int] = None
+    key: Optional[str] = None  # e.g. "A minor"
+    camelot: Optional[str] = None  # e.g. "8A"
 
 
 class Mix(BaseModel):
@@ -56,6 +62,8 @@ class Mix(BaseModel):
     artist: str = ""
     genre: str = ""
     bpm: Optional[int] = None
+    key: Optional[str] = None
+    camelot: Optional[str] = None
     duration: float = 0.0  # seconds
     description: str = ""
     audio_filename: Optional[str] = None  # local file in /storage/audio
@@ -64,6 +72,7 @@ class Mix(BaseModel):
     cover_url: Optional[str] = None  # external image url alternative
     source_path: Optional[str] = None  # in-place reference (absolute filesystem path)
     source_cover_path: Optional[str] = None  # in-place cover reference
+    analysis_status: str = "none"  # none | pending | running | done | failed
     tracks: List[Track] = []
     play_count: int = 0
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -166,7 +175,9 @@ def parse_cue(content: str) -> List[Track]:
 ITUNES_SEARCH_URL = "https://itunes.apple.com/search"
 MUSICBRAINZ_URL = "https://musicbrainz.org/ws/2/recording"
 COVERART_URL = "https://coverartarchive.org/release"
+DISCOGS_SEARCH_URL = "https://api.discogs.com/database/search"
 MB_USER_AGENT = "MIXDECK/1.0 (https://github.com/mixdeck)"
+DISCOGS_TOKEN = os.environ.get("DISCOGS_TOKEN", "").strip()
 
 
 def _normalize_key(artist: str, title: str) -> str:
@@ -270,11 +281,42 @@ async def _lookup_musicbrainz(artist: str, title: str) -> Optional[str]:
     return None
 
 
+async def _lookup_discogs(artist: str, title: str) -> Optional[str]:
+    """Tier-3 fallback using Discogs. Requires DISCOGS_TOKEN env var."""
+    if not DISCOGS_TOKEN:
+        return None
+    artist_c = _clean_for_search(artist)
+    title_c = _clean_for_search(title)
+    if not title_c:
+        return None
+    params = {
+        "q": f"{artist_c} {title_c}".strip(),
+        "type": "release",
+        "per_page": 5,
+        "token": DISCOGS_TOKEN,
+    }
+    headers = {"User-Agent": MB_USER_AGENT}
+    try:
+        async with httpx.AsyncClient(timeout=8.0, headers=headers) as client:
+            resp = await client.get(DISCOGS_SEARCH_URL, params=params)
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+    except Exception as e:
+        logging.getLogger("mixdeck").warning("Discogs lookup failed: %s", e)
+        return None
+    for r in data.get("results") or []:
+        url = r.get("cover_image") or r.get("thumb")
+        if url and "spacer.gif" not in url:
+            return url
+    return None
+
+
 @api_router.get("/tracks/artwork")
 async def track_artwork(artist: str = "", title: str = "", refresh: int = 0):
     """Return artwork URL for a track, cached in Mongo.
 
-    Lookup order: iTunes -> MusicBrainz + Cover Art Archive.
+    Lookup order: iTunes -> MusicBrainz + Cover Art Archive -> Discogs.
     Both successful hits and misses are cached. Pass ?refresh=1 to force a
     re-lookup (useful for cached misses after adding new fallback sources).
     """
@@ -299,6 +341,10 @@ async def track_artwork(artist: str = "", title: str = "", refresh: int = 0):
         url = await _lookup_musicbrainz(artist, title)
         if url:
             source = "musicbrainz"
+        else:
+            url = await _lookup_discogs(artist, title)
+            if url:
+                source = "discogs"
     await db.track_artwork.update_one(
         {"key": key},
         {"$set": {
@@ -608,6 +654,132 @@ class ScanRequest(BaseModel):
     path: str
     recursive: bool = True
     default_genre: str = ""
+    analyze: bool = True  # auto-run BPM + key analysis on every new mix
+
+
+# ===== Background audio analysis =====
+_analysis_locks: dict[str, asyncio.Task] = {}
+
+
+async def _run_mix_analysis(mix_id: str) -> None:
+    """Analyse a mix in the background: extract per-track BPM + key and mix duration.
+    Runs in a thread pool since librosa is CPU bound.
+    """
+    loop = asyncio.get_event_loop()
+    try:
+        await db.mixes.update_one({"id": mix_id}, {"$set": {"analysis_status": "running"}})
+        doc = await db.mixes.find_one({"id": mix_id}, {"_id": 0})
+        if not doc:
+            return
+        src = doc.get("source_path") or (str(AUDIO_DIR / doc["audio_filename"]) if doc.get("audio_filename") else None)
+        if not src or not Path(src).exists():
+            await db.mixes.update_one({"id": mix_id}, {"$set": {"analysis_status": "failed"}})
+            return
+
+        # 1) Fast metadata via mutagen
+        info = await loop.run_in_executor(None, read_audio_info, src)
+        updates: dict = {}
+        dur = info.get("duration") or 0.0
+        if dur and dur > 0:
+            updates["duration"] = dur
+        if info.get("bpm_tag") and not doc.get("bpm"):
+            updates["bpm"] = info["bpm_tag"]
+        if info.get("genre_tag") and not doc.get("genre"):
+            updates["genre"] = info["genre_tag"]
+
+        tracks = doc.get("tracks") or []
+        duration = updates.get("duration", doc.get("duration") or 0.0)
+
+        if not tracks:
+            # No cue sheet - just analyze the middle of the mix
+            start = max(0.0, (duration or 60.0) * 0.4)
+            res = await loop.run_in_executor(None, analyze_segment, src, start, 60.0)
+            if res.get("bpm"):
+                updates["bpm"] = res["bpm"]
+            if res.get("key"):
+                updates["key"] = res["key"]
+                updates["camelot"] = res.get("camelot")
+            if updates:
+                await db.mixes.update_one({"id": mix_id}, {"$set": updates})
+            await db.mixes.update_one({"id": mix_id}, {"$set": {"analysis_status": "done"}})
+            return
+
+        # 2) Per-track analysis - analyze a 45s window from each track
+        analyzed: list[dict] = []
+        for i, t in enumerate(tracks):
+            start = float(t.get("start_seconds") or 0.0)
+            # use window up to next track's start (capped at 45s, min 20s)
+            next_start = (
+                float(tracks[i + 1]["start_seconds"]) if i + 1 < len(tracks) else (duration or start + 60)
+            )
+            window = min(45.0, max(20.0, next_start - start - 2.0))
+            # skip analysis if window is nonsensical
+            if window < 15:
+                analyzed.append(t)
+                continue
+            # skip past first 8 seconds to avoid the transition into the track
+            offset = start + 8.0
+            res = await loop.run_in_executor(None, analyze_segment, src, offset, window)
+            t_new = dict(t)
+            if res.get("bpm"):
+                t_new["bpm"] = res["bpm"]
+            if res.get("key"):
+                t_new["key"] = res["key"]
+                t_new["camelot"] = res.get("camelot")
+            analyzed.append(t_new)
+            # checkpoint every 5 tracks so the UI sees progress
+            if (i + 1) % 5 == 0:
+                await db.mixes.update_one(
+                    {"id": mix_id},
+                    {"$set": {"tracks": analyzed + tracks[i + 1:], "analysis_status": "running"}},
+                )
+
+        bpms = [x["bpm"] for x in analyzed if x.get("bpm")]
+        if bpms and not updates.get("bpm") and not doc.get("bpm"):
+            # median is a decent overall BPM for a mix
+            updates["bpm"] = int(sorted(bpms)[len(bpms) // 2])
+
+        await db.mixes.update_one(
+            {"id": mix_id},
+            {"$set": {**updates, "tracks": analyzed, "analysis_status": "done"}},
+        )
+    except Exception as e:
+        logging.getLogger("mixdeck").exception("Analysis failed for %s: %s", mix_id, e)
+        await db.mixes.update_one({"id": mix_id}, {"$set": {"analysis_status": "failed"}})
+    finally:
+        _analysis_locks.pop(mix_id, None)
+
+
+def _schedule_analysis(mix_id: str) -> None:
+    if mix_id in _analysis_locks:
+        return
+    task = asyncio.create_task(_run_mix_analysis(mix_id))
+    _analysis_locks[mix_id] = task
+
+
+@api_router.post("/admin/mixes/{mix_id}/analyze", dependencies=[Depends(require_admin)])
+async def analyze_mix(mix_id: str):
+    doc = await db.mixes.find_one({"id": mix_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Mix not found")
+    if mix_id in _analysis_locks:
+        return {"ok": True, "status": "already_running"}
+    await db.mixes.update_one({"id": mix_id}, {"$set": {"analysis_status": "pending"}})
+    _schedule_analysis(mix_id)
+    return {"ok": True, "status": "pending"}
+
+
+@api_router.get("/mixes/{mix_id}/analysis_status")
+async def analysis_status(mix_id: str):
+    doc = await db.mixes.find_one({"id": mix_id}, {"_id": 0, "analysis_status": 1, "bpm": 1, "key": 1, "camelot": 1})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Mix not found")
+    return {
+        "status": doc.get("analysis_status") or "none",
+        "bpm": doc.get("bpm"),
+        "key": doc.get("key"),
+        "camelot": doc.get("camelot"),
+    }
 
 
 def _find_cue(audio: Path) -> Optional[Path]:
@@ -746,6 +918,10 @@ async def scan_directory(body: ScanRequest):
                 "cover": bool(cover),
             })
             existing.add(src)
+            # queue background analysis (BPM + key) for this newly added mix
+            if body.analyze:
+                await db.mixes.update_one({"id": mix.id}, {"$set": {"analysis_status": "pending"}})
+                _schedule_analysis(mix.id)
         except Exception as e:
             failed.append({"path": str(audio), "error": str(e)})
 
@@ -754,6 +930,7 @@ async def scan_directory(body: ScanRequest):
         "added_count": len(added),
         "skipped_count": len(skipped),
         "failed_count": len(failed),
+        "analysis_queued": len(added) if body.analyze else 0,
         "added": added,
         "skipped": skipped,
         "failed": failed,

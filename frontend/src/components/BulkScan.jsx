@@ -6,6 +6,7 @@ import { FolderSearch, Loader2, CheckCircle2, AlertTriangle, FileAudio, FileText
 export const BulkScan = ({ onScanned }) => {
     const [path, setPath] = useState(localStorage.getItem("mixdeck_scan_path") || "");
     const [recursive, setRecursive] = useState(true);
+    const [analyze, setAnalyze] = useState(true);
     const [genre, setGenre] = useState("");
     const [busy, setBusy] = useState(false);
     const [result, setResult] = useState(null);
@@ -20,10 +21,15 @@ export const BulkScan = ({ onScanned }) => {
         setBusy(true);
         setResult(null);
         try {
-            const data = await api.scanDirectory(path.trim(), recursive, genre.trim());
+            const data = await api.scanDirectory(path.trim(), recursive, genre.trim(), analyze);
             setResult(data);
             if (data.added_count > 0) {
                 toast.success(`IMPORTED ${data.added_count} MIX${data.added_count === 1 ? "" : "ES"}`);
+                if (analyze && data.analysis_queued) {
+                    toast.message(`ANALYZING ${data.analysis_queued} IN BACKGROUND`, {
+                        description: "BPM + key detection in progress — refresh the library to see results.",
+                    });
+                }
                 onScanned?.();
             } else if (data.skipped_count > 0 && data.failed_count === 0) {
                 toast.success(`ALL ${data.skipped_count} ALREADY INDEXED`);
@@ -47,7 +53,8 @@ export const BulkScan = ({ onScanned }) => {
                 Point at any folder on the server. Every <span className="text-neon-cyan">.mp3 / .flac / .wav / .m4a / .ogg</span>{" "}
                 with a matching <span className="text-neon-green">.cue</span> is imported and referenced in place — no disk duplication.
                 Cover art auto-detected from <span className="text-neon-cyan">cover.jpg / folder.jpg / {'{stem}'}.jpg</span>.
-                Re-running skips already-indexed files.
+                With <span className="text-neon-green">AUTO BPM + KEY</span> enabled, every track is analyzed in the background (~1-2s per track)
+                and tagged with tempo + Camelot key code. Re-running skips already-indexed files.
             </p>
 
             <form onSubmit={run} className="space-y-3">
@@ -86,6 +93,16 @@ export const BulkScan = ({ onScanned }) => {
                             className="w-4 h-4 accent-neon-cyan"
                         />
                         <span className="label">RECURSIVE (INCLUDE SUBFOLDERS)</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                            type="checkbox"
+                            checked={analyze}
+                            onChange={(e) => setAnalyze(e.target.checked)}
+                            data-testid="scan-analyze-toggle"
+                            className="w-4 h-4 accent-neon-green"
+                        />
+                        <span className="label">AUTO BPM + KEY ANALYSIS</span>
                     </label>
                     <button
                         type="submit"

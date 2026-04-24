@@ -133,7 +133,7 @@ export const MixDetail = () => {
                         <div className="grid grid-cols-3 gap-2 pt-2">
                             <Stat label="DURATION" value={fmtTime(dur)} icon={<Clock className="w-3 h-3" />} />
                             <Stat label="BPM" value={mix.bpm || "—"} icon={<Activity className="w-3 h-3" />} color="green" />
-                            <Stat label="PLAYS" value={mix.play_count || 0} icon={<Headphones className="w-3 h-3" />} />
+                            <Stat label={mix.camelot ? "KEY" : "PLAYS"} value={mix.camelot || mix.play_count || 0} icon={<Headphones className="w-3 h-3" />} />
                         </div>
                         <button
                             onClick={onPlayAll}
