@@ -31,9 +31,16 @@
 - Demo seed (Synthwave mix + 4 tracks) shown first run
 
 ## Implemented (2026-04)
-- **Per-track artwork auto-fetch** — iTunes → MusicBrainz + Cover Art Archive → **Discogs** (tier 3, when `DISCOGS_TOKEN` env is set). Cached in Mongo (`track_artwork`), returns `source` field, `?refresh=1` re-queries.
-- **Bulk directory scan** (`POST /api/admin/scan`) — recursive, in-place source_path referencing (zero disk dup), idempotent, auto cover detection, admin UI panel with results table.
-- **Automatic audio analysis** — every scanned mix auto-queues background `librosa` analysis. Per-track **BPM + musical key + Camelot code** (8A, 4B etc) detected by seeking to each track's start_seconds and analyzing a 45s window. Uses `mutagen` for fast metadata (duration, ID3 BPM tag, genre). Concurrency limited to `ANALYSIS_CONCURRENCY` (default 2) so bulk scans don't thrash the server. Endpoints: `POST /api/admin/mixes/{id}/analyze`, `GET /api/mixes/{id}/analysis_status`. Admin UI shows live ANALYZING → ANALYZED badges with polling. Cue tracklist on the DECK page renders per-track BPM + Camelot badges. 41/41 backend tests pass.
+- **Per-track artwork auto-fetch** — iTunes → MusicBrainz + Cover Art Archive → Discogs tier-3 (needs `DISCOGS_TOKEN`), cached, `?refresh=1` supported.
+- **Bulk directory scan** — recursive in-place ingest, zero disk dup, idempotent, admin UI panel with results table.
+- **Automatic audio analysis** — librosa + mutagen. Per-track BPM + musical key + Camelot code. Concurrency-limited background task queue. Live ANALYZING→ANALYZED status badges.
+- **Full DJ Console redesign** — the DECK section is now a hardware-style console (`XD-01` layout) featuring:
+  - Twin **JogWheels** (Deck A playing with rotating album art + progress ring, Deck B previewing next cue point)
+  - **Dual CDJ-style waveform** (cyan top + orange bottom stereo bands, zoomed 30s window with center playhead diamond, full-mix overview below with track markers)
+  - **4-channel Mixer** with hi/mid/low EQ knobs (knob indicators breathe with analyser band energy), per-channel VU meters + faders
+  - **Master volume** + **Crossfader** with tick marks + glowing fader cap
+  - **Performance Pads** (8 colored hot-cue pads mapped to first 8 tracks, tinted by Camelot key, one-tap jump-to-track)
+  - Lint clean, responsive, mobile-friendly layout
 
 ## Tech / Libraries
 - Backend: fastapi, motor, pydantic, PyJWT, aiofiles, python-multipart

@@ -2,12 +2,10 @@ import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { api, coverUrl, fmtTime } from "../lib/api";
 import { usePlayer } from "../contexts/PlayerContext";
-import { Waveform } from "../components/Waveform";
-import { VuMeter } from "../components/VuMeter";
 import { CueTrackList } from "../components/CueTrackList";
+import { DjConsole } from "../components/dj/DjConsole";
 import {
-    Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, ArrowLeft,
-    Music, Clock, Activity, Headphones, Loader2,
+    Play, Pause, ArrowLeft, Music, Clock, Activity, Headphones, Loader2,
 } from "lucide-react";
 
 export const MixDetail = () => {
@@ -150,91 +148,15 @@ export const MixDetail = () => {
                     </div>
                 </div>
 
-                {/* CENTER: deck */}
+                {/* CENTER: DJ CONSOLE */}
                 <div className="lg:col-span-8 space-y-4">
-                    <div className="border border-[#1A1D2E] bg-[#0a0c14] relative scanlines">
-                        <div className="px-4 py-2 border-b border-[#1A1D2E] flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <span className="w-2 h-2 rounded-full bg-neon-red animate-pulse" />
-                                <span className="label text-neon-red">REC</span>
-                                <span className="label text-zinc-500">// CHANNEL A</span>
-                            </div>
-                            <span className="label text-neon-cyan">DECK 01</span>
-                        </div>
-                        <div className="p-4 space-y-3">
-                            <Waveform
-                                mixId={mix.id}
-                                currentTime={time}
-                                duration={dur}
-                                onSeek={onSeek}
-                                tracks={mix.tracks}
-                                height={120}
-                            />
-                            <div className="flex items-center justify-between text-xs font-mono">
-                                <span className="text-neon-green glow-green">{fmtTime(time)}</span>
-                                <span className="text-zinc-500">{fmtTime(dur)}</span>
-                            </div>
-
-                            {/* Transport */}
-                            <div className="flex items-center justify-center gap-3 pt-2">
-                                <ControlBtn onClick={() => player.seekRelative(-30)} aria="back-30">
-                                    <SkipBack className="w-5 h-5" />
-                                </ControlBtn>
-                                <button
-                                    onClick={onPlayAll}
-                                    disabled={!playable}
-                                    data-testid="deck-play-pause"
-                                    className={`w-16 h-16 rounded-full bg-neon-cyan text-black flex items-center justify-center shadow-[0_0_28px_rgba(0,240,255,0.6)] hover:scale-105 transition-transform ${
-                                        isCurrent && player.playing ? "" : "animate-pulse-glow"
-                                    }`}
-                                    aria-label="Play"
-                                >
-                                    {isCurrent && player.playing ? (
-                                        <Pause className="w-6 h-6 fill-current" />
-                                    ) : (
-                                        <Play className="w-6 h-6 fill-current ml-0.5" />
-                                    )}
-                                </button>
-                                <ControlBtn onClick={() => player.seekRelative(30)} aria="fwd-30">
-                                    <SkipForward className="w-5 h-5" />
-                                </ControlBtn>
-
-                                <div className="ml-4 hidden md:flex items-center gap-2">
-                                    <button
-                                        onClick={() => player.setMuted(!player.muted)}
-                                        className="text-zinc-400 hover:text-neon-cyan"
-                                        aria-label="Mute"
-                                    >
-                                        {player.muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-                                    </button>
-                                    <input
-                                        type="range"
-                                        min={0}
-                                        max={1}
-                                        step={0.01}
-                                        value={player.volume}
-                                        onChange={(e) => player.setVolume(parseFloat(e.target.value))}
-                                        className="w-28"
-                                        style={{ "--seek": `${player.volume * 100}%` }}
-                                    />
-                                </div>
-                            </div>
-
-                            {/* VU meters */}
-                            <div className="grid grid-cols-2 gap-3 pt-3 border-t border-[#1A1D2E]">
-                                <div className="flex items-center gap-2">
-                                    <span className="label">L</span>
-                                    <div className="h-4 flex-1"><VuMeter orientation="horizontal" label="L" /></div>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <span className="label">R</span>
-                                    <div className="h-4 flex-1"><VuMeter orientation="horizontal" label="R" /></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Tracklist */}
+                    <DjConsole
+                        mix={mix}
+                        isCurrent={isCurrent}
+                        onPlayToggle={onPlayAll}
+                        onSeek={onSeek}
+                    />
+                    {/* Full tracklist */}
                     <CueTrackList tracks={mix.tracks || []} currentIndex={trackIndex} onJump={onSeek} />
                 </div>
             </div>
@@ -249,15 +171,4 @@ const Stat = ({ label, value, icon, color = "cyan" }) => (
             {value}
         </div>
     </div>
-);
-
-const ControlBtn = ({ children, onClick, aria }) => (
-    <button
-        onClick={onClick}
-        data-testid={`ctl-${aria}`}
-        className="w-11 h-11 border border-[#1A1D2E] hover:border-neon-cyan hover:text-neon-cyan text-zinc-300 flex items-center justify-center transition-colors"
-        aria-label={aria}
-    >
-        {children}
-    </button>
 );
