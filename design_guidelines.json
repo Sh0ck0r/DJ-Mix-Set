@@ -1,0 +1,114 @@
+{
+  "theme": "dark",
+  "archetype": "7 (Electric & Neon)",
+  "design_philosophy": "Dark neon / cyberpunk aesthetic mimicking high-end DJ hardware (Pioneer CDJ / Traktor). The player is the hero. Use deep void blacks, sharp angular UI elements, glowing neon accents, and technical typography. Avoid AI-slop purple gradients. Optimize for low-light club environments with fluid animations.",
+  "colors": {
+    "background": "#050505",
+    "surface": "#0D0E15",
+    "surface_hover": "#161824",
+    "border": "#1A1D2E",
+    "primary": "#00F0FF",
+    "primary_glow": "rgba(0, 240, 255, 0.5)",
+    "secondary": "#39FF14",
+    "secondary_glow": "rgba(57, 255, 20, 0.5)",
+    "accent": "#FF003C",
+    "text_primary": "#FFFFFF",
+    "text_secondary": "#A0A5B5",
+    "text_muted": "#5C6170"
+  },
+  "typography": {
+    "fonts": {
+      "headings": "Unbounded, sans-serif",
+      "body": "JetBrains Mono, monospace",
+      "ui": "Chivo, sans-serif"
+    },
+    "rules": {
+      "h1": "text-4xl sm:text-5xl tracking-tight font-black uppercase",
+      "h2": "text-2xl sm:text-3xl tracking-tight font-bold uppercase",
+      "h3": "text-xl sm:text-2xl font-semibold",
+      "body": "text-base leading-relaxed font-mono",
+      "labels": "text-xs tracking-[0.2em] uppercase font-mono text-text_secondary"
+    }
+  },
+  "layout": {
+    "strategy": "Control Room Grid for the Player, Bento Grid for the Mix Library.",
+    "spacing": "Generous spacing (p-6 to p-12) for library. Dense, functional spacing (p-2 to p-4) for the player controls.",
+    "borders": "Hardware-inspired. 1px solid borders. No soft shadows. Use drop-shadow for neon glows.",
+    "radius": "Sharp edges (rounded-none) or very subtle (rounded-sm) to mimic physical hardware screens."
+  },
+  "surfaces": {
+    "player_container": "Retro-Futurism / Terminal Look. Deep black background, 1px laser cyan border, subtle cyan drop-shadow on active state.",
+    "mix_card": "Grid Borders strategy. border-collapse style layout. 1px subtle borders on right and bottom. Hover state triggers a neon border glow and slight lift.",
+    "persistent_mini_player": "Glassmorphism with a twist: backdrop-blur-xl bg-[#050505]/80, with a 1px border-t border-[#00F0FF]/30."
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-primary text-black font-bold uppercase tracking-widest hover:bg-white hover:text-black transition-colors rounded-none shadow-[0_0_15px_rgba(0,240,255,0.4)]",
+      "secondary": "bg-transparent border border-primary text-primary hover:bg-primary/10 rounded-none",
+      "icon_action": "text-text_secondary hover:text-primary transition-colors"
+    },
+    "inputs": {
+      "style": "bg-surface border border-border text-white focus:border-primary focus:ring-1 focus:ring-primary rounded-none font-mono"
+    },
+    "waveform": {
+      "style": "Canvas or SVG based. Acid green (#39FF14) for played portion, dark grey (#1A1D2E) for unplayed. Add a subtle neon glow effect (drop-shadow)."
+    },
+    "vu_meter": {
+      "style": "Segmented vertical or horizontal bars. Green -> Yellow -> Red (#39FF14 -> #F2E900 -> #FF003C) to mimic Pioneer mixers."
+    },
+    "tags": "bg-surface border border-border text-xs px-2 py-1 uppercase tracking-wider text-primary"
+  },
+  "animations": {
+    "hover": "Fast, responsive hardware-like transitions (duration-150).",
+    "player_state": "Pulsing glow on the play button when paused. Solid intense glow when playing.",
+    "waveform_sync": "Smooth linear translation of the waveform based on playback position."
+  },
+  "media": {
+    "icons_library": "lucide-react",
+    "images": [
+      {
+        "category": "hero_background",
+        "description": "DJ controller Pioneer cdj dark club lighting",
+        "url": "https://images.unsplash.com/photo-1642784352095-f317a1b58f35?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzR8MHwxfHNlYXJjaHwxfHxESiUyMGNvbnRyb2xsZXIlMjBQaW9uZWVyJTIwY2RqJTIwZGFyayUyMGNsdWIlMjBsaWdodGluZ3xlbnwwfHx8fDE3NzY5OTc2ODN8MA&ixlib=rb-4.1.0&q=85"
+      },
+      {
+        "category": "hardware_detail",
+        "description": "Close-up of a DJ's hands mixing music on a Pioneer turntable in a dimly lit nightclub.",
+        "url": "https://images.pexels.com/photos/14577015/pexels-photo-14577015.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940"
+      },
+      {
+        "category": "cover_art_placeholder_1",
+        "description": "Orange neon grid forming a diamond shape on dark background.",
+        "url": "https://images.unsplash.com/photo-1769120061986-a077f35b2569?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAxODF8MHwxfHNlYXJjaHwyfHxhYnN0cmFjdCUyMG5lb24lMjBzeW50aHdhdmUlMjBncmlkJTIwZGFya3xlbnwwfHx8fDE3NzY5OTc2ODN8MA&ixlib=rb-4.1.0&q=85"
+      },
+      {
+        "category": "cover_art_placeholder_2",
+        "description": "A neon green grid forms a diamond shape.",
+        "url": "https://images.unsplash.com/photo-1769120062656-23adba3790b3?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAxODF8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMG5lb24lMjBzeW50aHdhdmUlMjBncmlkJTIwZGFya3xlbnwwfHx8fDE3NzY5OTc2ODN8MA&ixlib=rb-4.1.0&q=85"
+      }
+    ]
+  },
+  "pages_and_layout": {
+    "mix_library": {
+      "description": "Grid of mix cards with cover art, BPM, genre, duration, play count.",
+      "layout": "grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6",
+      "card_style": "Image wrapper with aspect-square. Hover reveals play button overlay (bg-black/50 backdrop-blur-sm). Text info below image."
+    },
+    "now_playing": {
+      "description": "Full-screen player with large animated waveform, VU meters, big cover art, and cue sheet list.",
+      "layout": "Control Room Grid (grid-cols-1 lg:grid-cols-12 gap-4). Left column (col-span-4): Cover Art & Metadata. Center/Right (col-span-8): Waveform, Transport Controls, VU meters, and scrollable Cue Sheet tracklist below.",
+      "special_elements": "Current track in cue sheet has glowing text and a left-border accent. Clicking a track updates playback time."
+    },
+    "persistent_player": {
+      "description": "Mini-player at bottom of screen (mobile-friendly).",
+      "layout": "Fixed bottom-0 w-full z-50 h-20. Flex container. Left: Mini cover + title. Center: Transport controls + mini waveform/progress bar. Right: Volume control."
+    },
+    "admin_upload": {
+      "description": "Admin upload panel (drag-drop mp3/flac + .cue file, cover art, metadata).",
+      "layout": "Centered narrow container (max-w-2xl). Dash-border dropzone for files. Standard neon-styled Shadcn form inputs."
+    }
+  },
+  "testing": {
+    "rules": "All interactive and key informational elements MUST include a data-testid attribute. Convention: kebab-case, role-based. Examples: data-testid='play-pause-button', data-testid='mix-card', data-testid='cue-track-item'."
+  }
+}
