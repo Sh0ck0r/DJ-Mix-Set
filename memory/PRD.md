@@ -31,9 +31,9 @@
 - Demo seed (Synthwave mix + 4 tracks) shown first run
 
 ## Implemented (2026-04)
-- **Per-track artwork auto-fetch** — iTunes Search API → MusicBrainz + Cover Art Archive fallback, cached in Mongo (`track_artwork` collection), returns `source` field (itunes/musicbrainz/null), `?refresh=1` forces re-lookup. Live crossfade on DECK cover + mini-player when track changes in the cue.
-- **Bulk directory scan** (`POST /api/admin/scan`) — recursively walks a server folder, ingests every audio + matching .cue by stem, references files in place via `source_path` (zero disk duplication), idempotent re-scans skip existing paths, auto-detects cover art siblings (`cover.jpg`, `folder.jpg`, `{stem}.jpg`), pulls TITLE/PERFORMER from cue header. Streaming + cover endpoints extended with source_path fallback (preserves HTTP Range support). DELETE preserves original files on disk. 32/32 backend tests pass.
-- **Admin UI** — new "BULK SCAN" panel with path input (remembered in localStorage), recursive toggle, default-genre field, live results table (imported / skipped / failed breakdown with track counts + cue/cover badges).
+- **Per-track artwork auto-fetch** — iTunes → MusicBrainz + Cover Art Archive → **Discogs** (tier 3, when `DISCOGS_TOKEN` env is set). Cached in Mongo (`track_artwork`), returns `source` field, `?refresh=1` re-queries.
+- **Bulk directory scan** (`POST /api/admin/scan`) — recursive, in-place source_path referencing (zero disk dup), idempotent, auto cover detection, admin UI panel with results table.
+- **Automatic audio analysis** — every scanned mix auto-queues background `librosa` analysis. Per-track **BPM + musical key + Camelot code** (8A, 4B etc) detected by seeking to each track's start_seconds and analyzing a 45s window. Uses `mutagen` for fast metadata (duration, ID3 BPM tag, genre). Concurrency limited to `ANALYSIS_CONCURRENCY` (default 2) so bulk scans don't thrash the server. Endpoints: `POST /api/admin/mixes/{id}/analyze`, `GET /api/mixes/{id}/analysis_status`. Admin UI shows live ANALYZING → ANALYZED badges with polling. Cue tracklist on the DECK page renders per-track BPM + Camelot badges. 41/41 backend tests pass.
 
 ## Tech / Libraries
 - Backend: fastapi, motor, pydantic, PyJWT, aiofiles, python-multipart

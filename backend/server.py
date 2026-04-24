@@ -659,12 +659,28 @@ class ScanRequest(BaseModel):
 
 # ===== Background audio analysis =====
 _analysis_locks: dict[str, asyncio.Task] = {}
+_ANALYSIS_CONCURRENCY = int(os.environ.get("ANALYSIS_CONCURRENCY", "2"))
+_analysis_semaphore: Optional[asyncio.Semaphore] = None
+
+
+def _get_analysis_semaphore() -> asyncio.Semaphore:
+    global _analysis_semaphore
+    if _analysis_semaphore is None:
+        _analysis_semaphore = asyncio.Semaphore(_ANALYSIS_CONCURRENCY)
+    return _analysis_semaphore
 
 
 async def _run_mix_analysis(mix_id: str) -> None:
     """Analyse a mix in the background: extract per-track BPM + key and mix duration.
     Runs in a thread pool since librosa is CPU bound.
+    Limited by a global semaphore so bulk scans don't thrash the server.
     """
+    sem = _get_analysis_semaphore()
+    async with sem:
+        await _run_mix_analysis_inner(mix_id)
+
+
+async def _run_mix_analysis_inner(mix_id: str) -> None:
     loop = asyncio.get_event_loop()
     try:
         await db.mixes.update_one({"id": mix_id}, {"$set": {"analysis_status": "running"}})
