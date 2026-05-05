@@ -30,7 +30,11 @@
 - Admin login + dashboard (drag-drop upload, inline file replacement, delete)
 - Demo seed (Synthwave mix + 4 tracks) shown first run
 
-## Implemented (2026-05) — Phase 1 of jog/share/compatible upgrade
+## Implemented (2026-05) — Phase 2: Caching, Real Waveforms, Editor, RSS
+- **Redis caching layer** — new `cache.py` module wraps redis-py asyncio. Hot read paths cached: `/api/mixes` list (300s), `/api/mixes/{id}` detail (300s), `/api/mixes/genres` (600s), `/api/mixes/{id}/compatible` (300s), `/api/feed.xml` (600s), waveform peaks (24h). All write paths invalidate via `cache.invalidate_mixes()` — verified across 11 write endpoints. Graceful no-op when `REDIS_URL` is empty/unreachable. Configured via `.env`.
+- **Real audio-decoded waveform peaks** — `GET /api/mixes/{id}/waveform` returns ~1200 normalised peak values from a librosa-decoded full audio file. Computed lazily on first request (~1-3s for short audio, scales linearly), persisted to `/storage/waveforms/{id}.json` (~6-10KB), cached in Redis 24h. Frontend `DjConsole` fetches and feeds the `FullWaveform` + `ZoomedWaveform` components — falls back to synthetic if not yet computed.
+- **Inline metadata editor** — new `MixEditModal` component opens from each admin row's pencil icon. Edits title/artist/genre/BPM/key/Camelot/description in one place via PATCH. No more delete+re-upload to fix typos.
+- **RSS podcast feed** — `GET /api/feed.xml` emits an iTunes/Apple-Podcasts compatible RSS 2.0 feed with proper RFC-822 pubDates, `<itunes:duration>`, `<itunes:image>`, per-mix `<enclosure>` pointing at the streaming endpoint. Library hero exposes a "SUBSCRIBE · RSS PODCAST FEED" button. **70/70 backend tests pass**, zero regressions.
 - **Alternating Decks** — track parity (even=A, odd=B) decides which deck is "live" and which is "cued/preview" for the next track. Inactive deck dims and shows the upcoming cover art; on each track transition the active side flips with a 1.5s crossfade. Crossfader on screen drifts toward the live side. CH 1/CH 2 mixer channels light up to match.
 - **Draggable JogWheels** — pointer-down on the active disc lets you spin it; 360° of rotation = 30 seconds of audio (CDJ-style). Inactive jog is non-interactive. Touch-friendly via Pointer Events API.
 - **Track-art crossfade** on jog wheels — current art fades into the disc smoothly, previous art briefly retained for blend.
