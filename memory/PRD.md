@@ -51,6 +51,12 @@
 - **Analysis overview** — `GET /api/admin/analysis_overview` returns library-wide BPM+Key analysis counters (`{counts:{none,pending,running,done,failed}, total, active_workers}`).
 - **Test suite migration** — added `tests/_scan_helpers.py::scan_and_wait()` polling helper. Migrated `test_scan.py`, `test_analysis.py`, `test_phase2.py` to the new contract. **78/78 backend tests pass** (was 70/70), zero regressions. New `test_bg_scan.py` covers auth, validation, polling, idempotency, cache invalidation, and overview shape.
 
+## Implemented (2026-02 — Phase 4: Analysis Overview UI + Stream Bug Fix + Backend Refactor)
+- **AnalysisOverviewBar** — new `/app/frontend/src/components/AnalysisOverviewBar.jsx` renders a 6-cell live header strip on the AdminDashboard (LIBRARY · ANALYZED · RUNNING · QUEUED · FAILED · WORKERS) with a glowing green progress bar across the bottom and an `ANALYZE ALL` button that calls `POST /api/admin/analyze_all`. Auto-polls every 4s while any work is pending/running.
+- **Stream/cover URL bug fix** — `streamUrl()` and `coverUrl()` in `lib/api.js` only returned a URL when `audio_filename`/`cover_filename` was set, leaving every FTP-scanned mix (which only has `source_path`/`source_cover_path`) unplayable in the UI even though the backend stream endpoint handled it. Both helpers now fall back to `source_path`/`source_cover_path`. `MixCard.jsx` and `MixDetail.jsx` `playable` checks updated.
+- **Jog-wheel scrub verified** — direct Playwright e2e: 60° clockwise drag = +5.48s, 60° counter-clockwise = −4.27s. Math proven: `seconds = (angleDelta / 360) * 30`, throttled to `player.seek` every >0.25s, final seek on drag end. Added a tiny dev-only `window.__mixdeckAudio` hook in `PlayerContext.jsx` for e2e/debug access.
+- **server.py refactored 1290 → 697 lines** (46% reduction). Extracted into 6 focused modules: `state.py` (db + paths + env), `models.py` (Pydantic types), `cue.py` (parser + cover/cue file discovery), `artwork.py` (iTunes/MusicBrainz/Discogs cascade), `analysis_service.py` (background BPM/Key + semaphore), `scan_service.py` (background bulk-scan task tracker). API contract identical, **78/78 backend tests still pass**, full frontend e2e regression clean (testing_agent_v3_fork iter 8: 100%/100%, zero issues).
+
 ## Tech / Libraries
 - Backend: fastapi, motor, pydantic, PyJWT, aiofiles, python-multipart
 - Frontend: react-router-dom, axios, sonner, lucide-react, tailwindcss
@@ -58,9 +64,8 @@
 - Colors: void #050505, surface #0D0E15, cyan #00F0FF, green #39FF14, red #FF003C
 
 ## Backlog (P0/P1/P2)
-- P0: Refactor `server.py` (1290 lines) into routers (`mixes_router.py`, `admin_router.py`, `streaming_router.py`, `feed_router.py`)
-- P1: Validate jog wheel nudge logic accurately adjusts playback ±5s on drag scrub
-- P1: Surface `analysis_overview` counts in the AdminDashboard header (UI consumer for the new endpoint)
 - P2: "Also in this genre" row on mix detail
 - P2: Drag-to-reorder tracks, manual track list editor
 - P2: Download-for-offline / mix archive zip
+- P2: Per-track cover-art lazy fetch button on mix detail (currently auto-fetched on track change in the player)
+- P2: Mobile-first refinement of the DJ console (jog wheels currently size down but mixer EQ knobs get cramped < 480px)
