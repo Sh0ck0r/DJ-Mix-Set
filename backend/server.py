@@ -93,6 +93,8 @@ class MixUpdate(BaseModel):
     artist: Optional[str] = None
     genre: Optional[str] = None
     bpm: Optional[int] = None
+    key: Optional[str] = None
+    camelot: Optional[str] = None
     description: Optional[str] = None
     audio_url: Optional[str] = None
     cover_url: Optional[str] = None

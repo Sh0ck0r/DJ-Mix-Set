@@ -30,8 +30,13 @@
 - Admin login + dashboard (drag-drop upload, inline file replacement, delete)
 - Demo seed (Synthwave mix + 4 tracks) shown first run
 
-## Implemented (2026-04)
-- **Per-track artwork auto-fetch** — iTunes → MusicBrainz + Cover Art Archive → Discogs tier-3 (needs `DISCOGS_TOKEN`), cached, `?refresh=1` supported.
+## Implemented (2026-05) — Phase 1 of jog/share/compatible upgrade
+- **Alternating Decks** — track parity (even=A, odd=B) decides which deck is "live" and which is "cued/preview" for the next track. Inactive deck dims and shows the upcoming cover art; on each track transition the active side flips with a 1.5s crossfade. Crossfader on screen drifts toward the live side. CH 1/CH 2 mixer channels light up to match.
+- **Draggable JogWheels** — pointer-down on the active disc lets you spin it; 360° of rotation = 30 seconds of audio (CDJ-style). Inactive jog is non-interactive. Touch-friendly via Pointer Events API.
+- **Track-art crossfade** on jog wheels — current art fades into the disc smoothly, previous art briefly retained for blend.
+- **Deep-seek share links** — `?t=MM:SS` (also `HH:MM:SS` or raw seconds) auto-loads the mix and seeks to the timestamp once metadata is ready. New SHARE LINK button copies a timestamped URL to clipboard.
+- **Harmonic recommendations** — `GET /api/mixes/{id}/compatible` finds mixes within ±4 BPM and adjacent Camelot keys (same key, ±1 number, relative major↔minor). Frontend shows a recs row at the bottom of every Mix Detail page. **15/15 new backend tests pass, 0 regressions.**
+- **Manual key/camelot override** — MixUpdate now accepts `key` and `camelot` fields so admins can correct analyzer output without touching Mongo.
 - **Bulk directory scan** — recursive in-place ingest, zero disk dup, idempotent, admin UI panel with results table.
 - **Automatic audio analysis** — librosa + mutagen. Per-track BPM + musical key + Camelot code. Concurrency-limited background task queue. Live ANALYZING→ANALYZED status badges.
 - **Full DJ Console redesign** — the DECK section is now a hardware-style console (`XD-01` layout) featuring:
