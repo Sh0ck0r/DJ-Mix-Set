@@ -69,13 +69,13 @@ export const api = {
 
 export const streamUrl = (mix) => {
     if (mix?.audio_url) return mix.audio_url;
-    if (mix?.audio_filename) return `${API}/stream/${mix.id}`;
+    if (mix?.audio_filename || mix?.source_path) return `${API}/stream/${mix.id}`;
     return null;
 };
 
 export const coverUrl = (mix) => {
     if (mix?.cover_url) return mix.cover_url;
-    if (mix?.cover_filename) return `${API}/cover/${mix.id}`;
+    if (mix?.cover_filename || mix?.source_cover_path) return `${API}/cover/${mix.id}`;
     return null;
 };
 

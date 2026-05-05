@@ -29,6 +29,8 @@ export const PlayerProvider = ({ children }) => {
         el.crossOrigin = "anonymous";
         el.preload = "metadata";
         audioRef.current = el;
+        // Expose for e2e tests + browser-console debugging. Harmless in prod.
+        if (typeof window !== "undefined") window.__mixdeckAudio = el;
 
         const onTime = () => setCurrentTime(el.currentTime || 0);
         const onDur = () => setDuration(el.duration || 0);

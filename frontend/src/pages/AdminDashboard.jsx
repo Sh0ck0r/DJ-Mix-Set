@@ -5,6 +5,7 @@ import { Upload, Plus, Trash2, FileAudio, FileText, Image as ImageIcon, Loader2,
 import { toast } from "sonner";
 import { BulkScan } from "../components/BulkScan";
 import { MixEditModal } from "../components/MixEditModal";
+import { AnalysisOverviewBar } from "../components/AnalysisOverviewBar";
 
 const Field = ({ label, ...props }) => (
     <label className="block">
@@ -111,6 +112,8 @@ export const AdminDashboard = () => {
                     </button>
                 </div>
             </div>
+
+            <AnalysisOverviewBar onChanged={load} />
 
             {showScan && <BulkScan onScanned={load} />}
             {showForm && <NewMixForm onCreated={() => { setShowForm(false); load(); }} />}

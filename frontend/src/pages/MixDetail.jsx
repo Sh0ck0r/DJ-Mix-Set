@@ -35,7 +35,7 @@ export const MixDetail = () => {
     }, [id]);
 
     // Deep-seek from URL ?t=12:34 - applies once after mix + audio is ready.
-    const playable = !!(mix?.audio_filename || mix?.audio_url);
+    const playable = !!(mix?.audio_filename || mix?.audio_url || mix?.source_path);
     useEffect(() => {
         if (!mix || deepSeekApplied.current) return;
         const raw = searchParams.get("t");

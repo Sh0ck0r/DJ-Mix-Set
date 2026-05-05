@@ -1,0 +1,36 @@
+{
+  "summary": "Iteration 8 — full regression after server.py refactor (1290->697 lines) + 2 new features (AnalysisOverviewBar + source_path playable fix). All 78/78 pytest backend tests PASSED (16.99s) across backend_test.py, test_analysis.py, test_bg_scan.py, test_compatible.py, test_phase2.py, test_scan.py. Endpoint smoke checks: GET /api/admin/analysis_overview returns correct {counts:{none:5,pending:0,running:0,done:0,failed:0},total:5,active_workers:0} shape; POST /api/admin/analyze_all returns {queued:1,skipped:4} with 200, returns 401 without token; GET /api/tracks/artwork for Aly+Fila returns source='itunes'; GET /api/feed.xml returns 200 with RFC-822 pubDate 'Tue, 05 May 2026 19:38:49 +0000'; GET /api/stream/{test-mix-id} with Range returns 206 + Content-Range bytes 0-1023/931630. POST /api/admin/scan returns {task_id,status:'running'} immediately. Frontend e2e: homepage renders 7 mix cards, /mix/0372fa2a-... (source_path only, NO audio_filename) shows PLAY MIX button ENABLED, click plays audio (window.__mixdeckAudio.readyState=4, src=/api/stream/..., currentTime advancing — bug fix VERIFIED), admin login works, AdminDashboard shows AnalysisOverviewBar with all 6 cells (LIBRARY 7, ANALYZED 1·14%, RUNNING, QUEUED, FAILED, WORKERS) + 'ANALYZE ALL' button [data-testid=analyze-all-button] is present and enabled. Zero console errors, zero page errors.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_analysis.py",
+    "/app/backend/tests/test_bg_scan.py",
+    "/app/backend/tests/test_compatible.py",
+    "/app/backend/tests/test_phase2.py",
+    "/app/backend/tests/test_scan.py",
+    "/app/test_reports/pytest/pytest_results_iter8.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Refactor is clean: state.py/models.py/cue.py/artwork.py/analysis_service.py/scan_service.py have clear single responsibilities and server.py is down to 697 lines. Consider moving the remaining route handlers for /api/admin/scan and /api/admin/analyze_all into a routes_admin.py to further reduce server.py when it grows again.",
+    "AnalysisOverviewBar polls every 4s unconditionally while admin dashboard is open — fine for a self-hosted single-admin app, but consider pausing when document.hidden or when counts.running+pending==0 for N consecutive polls to cut idle chatter.",
+    "Previous iteration note still valid: _scan_tasks and the in-flight analyze queue are in-process memory — a backend restart loses task state. Acceptable for single-replica self-hosted deployment, but worth a README note.",
+    "analysis_overview iterates the full mixes collection on every call — replace with $group aggregate on analysis_status when library grows past a few thousand mixes."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (78/78)", "frontend": "100%"},
+  "test_credentials": "Admin password: mixdeck2026 (read from /app/memory/test_credentials.md)",
+  "seed_data_creation": "None. One POST /api/admin/analyze_all call queued 1 existing mix for analysis (non-destructive, no new mixes created). All test fixtures self-cleanup via DELETE /api/admin/mixes/{id} in teardown.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Refactor is stable; 78/78 tests pass in 17s. AnalysisOverviewBar renders correctly on /admin with data-testid='analyze-all-button'. Test Mix 0372fa2a-5878-4129-ba77-576198c5afa6 is the canonical source_path-only fixture — use it to regression-test the streamUrl/coverUrl fallback. The analyze_all flow: POST returns {queued,skipped}, overview poll transitions none->pending->running->done over ~5-30s per track depending on audio length.",
+  "rca of the issue": "N/A — no issues found. Refactor zero-regression, both new features work as specified."
+}

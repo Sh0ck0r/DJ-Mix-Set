@@ -11,7 +11,7 @@ const FALLBACK_COVERS = [
 export const MixCard = ({ mix, index = 0 }) => {
     const { loadMix } = usePlayer();
     const cover = coverUrl(mix) || FALLBACK_COVERS[index % FALLBACK_COVERS.length];
-    const playable = !!(mix.audio_filename || mix.audio_url);
+    const playable = !!(mix.audio_filename || mix.audio_url || mix.source_path);
 
     const onPlay = (e) => {
         e.preventDefault();
