@@ -1,0 +1,50 @@
+{
+  "summary": "Iteration 5 backend-only testing for MIXDECK Phase 2 (Redis cache, real waveform peaks, RSS feed, MixUpdate harmonic fields). Created /app/backend/tests/test_phase2.py with 14 new tests - all 14 PASS. Full regression: 67/70 (3 NEW regressions in pre-existing backend_test.py caused by Phase 2 cache: write endpoints that don't invalidate cache return stale GET responses).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/mixes/{id}/play", "issue": "Increments play_count in DB but does NOT call cache.invalidate_mixes(). Subsequent GET /api/mixes/{id} returns stale cached play_count for up to 300s. Reproduced: test_play_count_increment now fails (was passing before Phase 2).", "priority": "CRITICAL"},
+      {"endpoint": "POST /api/mixes/{id}/duration (public_set_duration)", "issue": "Sets duration in DB but does NOT invalidate cache; GET returns stale duration=0. Reproduced: test_public_duration_sets_when_zero fails.", "priority": "CRITICAL"},
+      {"endpoint": "POST /api/admin/mixes/{id}/audio (upload_audio)", "issue": "Updates audio_filename in DB but does NOT invalidate cache; GET returns stale audio_filename=None. Reproduced: test_audio_upload_and_stream_range fails (mix['audio_filename'] is None instead of '<id>.mp3').", "priority": "CRITICAL"},
+      {"endpoint": "POST /api/admin/mixes/{id}/cover (upload_cover)", "issue": "Same pattern - updates cover_filename without invalidating cache. Not directly tested but identical code path.", "priority": "HIGH"},
+      {"endpoint": "POST /api/admin/mixes/{id}/cue (upload_cue)", "issue": "Updates tracks[] in DB without invalidating cache. Stale tracks returned by subsequent GET.", "priority": "HIGH"},
+      {"endpoint": "POST /api/admin/mixes/{id}/tracks (set_tracks)", "issue": "Same - no cache.invalidate_mixes() call.", "priority": "HIGH"},
+      {"endpoint": "POST /api/admin/mixes/{id}/duration (admin set_duration)", "issue": "Same - no cache.invalidate_mixes() call.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "GET /api/feed.xml", "issue": "<enclosure length='0'> hardcoded. RSS spec says length should be byte size of audio. Most podcast clients ignore zero, but iTunes prefers a real value or omitted attr."},
+      {"endpoint": "GET /api/feed.xml", "issue": "<pubDate> emits ISO-8601 (e.g. '2026-01-15T10:00:00+00:00') but RSS 2.0 mandates RFC-822 ('Mon, 15 Jan 2026 10:00:00 +0000'). Some podcast aggregators may reject."},
+      {"endpoint": "GET /api/feed.xml", "issue": "Channel <link> is base URL only (no trailing /), while item <link> uses '{base}/mix/{id}'. The frontend route may differ - verify SPA serves /mix/{id}."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_phase2.py",
+    "/app/test_reports/pytest/test_phase2_results.xml",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "CRITICAL: Add `await cache.invalidate_mixes()` call after every DB write in: increment_play (server.py:433), public_set_duration (623), upload_audio (545), upload_cover (565), upload_cue (584), set_tracks (604), admin set_duration (614). Currently only the 4 obvious write endpoints (POST/PATCH/DELETE /admin/mixes, scan, analysis) invalidate. The 7 listed endpoints all mutate mix documents but leave the mix:{id} cache intact for up to 300s, causing the frontend to read stale data after upload/cue-edit/play-count.",
+    "Optional: extract a small helper decorator or wrapper (e.g. `async def _commit_mix(mix_id, update)`) to atomically update + invalidate cache, eliminating this class of bug.",
+    "Minor: convert RSS pubDate to RFC-822 format and consider populating <enclosure length=...> from file size for stricter podcast-client compatibility."
+  ],
+  "critical_code_review_comments": [
+    "Cache invalidation is not applied uniformly across write paths. Out of ~10 endpoints that mutate mixes, 7 forgot to call cache.invalidate_mixes(). This is the root cause of the 3 regressions introduced by Phase 2.",
+    "rss_feed() reads up to 2000 mixes synchronously (.to_list(2000)) and concatenates strings - fine at current scale but should switch to streaming generator if mix count grows.",
+    "compute_waveform_peaks() loads the entire decoded audio into memory at sr=8000. For a 6h FLAC = ~170MB float32 (~700MB peak during load). The docstring says 'fits in memory' but this should be capped or streamed for very long mixes.",
+    "Waveform endpoint takes no Authorization (intentional?) - any anonymous client can trigger a multi-second CPU-bound librosa decode by hitting random mix ids that haven't been computed yet. Consider: (a) admin-only first-decode + lazy fallback for clients, or (b) rate-limit by mix_id.",
+    "cache.set() uses default=str on json.dumps - silently coerces objects (datetime, UUID) to str. Acceptable for a cache layer but undocumented. A roundtrip GET will return string ISO timestamps where the source was datetime - breaks if any consumer expects datetime objects from cache.",
+    "RSS feed cache ttl=600 but cache.invalidate_mixes() also nukes 'rss:feed' on every write - so practical TTL is 'until next admin action'. That's correct but worth noting in a comment.",
+    "Pre-existing: server.py is now 1202 lines. Splitting into routers/services (auth.py, mixes_router.py, scan_router.py, feed_router.py, waveform_router.py) is overdue and would have prevented the missed-invalidation bug above by isolating cache concerns to a router-level dependency."
+  ],
+  "updated_files": ["/app/backend/tests/test_phase2.py (new - 14 tests)"],
+  "success_rate": {
+    "backend": "100% on Phase 2 features (14/14); overall 67/70 (3 regressions in prior tests caused by Phase 2 cache invalidation gaps - see action items)",
+    "frontend": "not tested (backend-only per request)"
+  },
+  "test_credentials": "Admin password: mixdeck2026 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Downloaded https://www.kozco.com/tech/LRMonoPhase4.mp3 to /tmp/wf_test/sample.mp3 (910KB, ~30s mono mp3) + matching sample.cue. Also copied to /tmp/real_audio.mp3 for compatibility with iter3 test_analysis fixtures. Phase 2 tests scan /tmp/wf_test (analyze=False), produce a real waveform JSON at /app/backend/storage/waveforms/{mix_id}.json (~6KB, ~1100 bars). Test mix is deleted in fixture teardown.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 5 done. Phase 2 features verified: (1) RSS feed: returns 200 application/rss+xml, valid <rss>/<channel> with itunes/atom namespaces, items only for mixes with audio source, identical bytes on second call (cached at mixdeck:rss:feed). (2) Waveform endpoint: 404 on unknown id, {peaks:[],ready:false} when no audio, computes ~1100 bars on real mp3 in ~3s, second call <2s, JSON persisted to storage/waveforms/{id}.json. (3) MixUpdate accepts key+camelot, persisted via Mongo. (4) Redis: mixdeck:mixes:list:: key populated; PATCH busts mixes:*, mix:{id}, compatible:*, rss:feed. (5) DELETE removes orphan waveform JSON. CRITICAL: 3 NEW regressions discovered in pre-existing tests - increment_play, public_set_duration, and upload_audio mutate DB without calling cache.invalidate_mixes(), so subsequent GETs return stale data. Same bug affects upload_cover, upload_cue, set_tracks, admin set_duration (not directly covered by current tests but identical code path). Test file /tmp/wf_test/sample.mp3 + /tmp/real_audio.mp3 is now seeded (use --keep). After main agent fixes the cache invalidation calls, re-run pytest /app/backend/tests/ - all 70 should pass.",
+  "rca of the issue": "RCA: Phase 2 introduced Redis caching at the GET /api/mixes/{id} layer (TTL 300s). Five Phase 1 endpoints already had cache.invalidate_mixes() added (POST/PATCH/DELETE /admin/mixes, scan, analysis). However, 7 OTHER write endpoints that mutate the mix document were missed: increment_play, upload_audio, upload_cover, upload_cue, set_tracks, public_set_duration, admin_set_duration. After ANY of these writes, a cached GET response for that mix can return stale data for up to 5 minutes. Reproduction: GET /api/mixes/{id} (warm cache) -> POST /api/mixes/{id}/play -> GET /api/mixes/{id} returns old play_count. Mitigation: add `await cache.invalidate_mixes()` (or a more targeted `cache.delete(f'mix:{mix_id}')` + `delete_pattern('mixes:*')`) at the end of each of those 7 endpoints. A cleaner fix is a single _mutate_mix(mix_id, update_dict) helper that wraps update + invalidate so future endpoints can't forget."
+}

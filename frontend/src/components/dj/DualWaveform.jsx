@@ -18,11 +18,27 @@ function buildBars(seed, count = 400) {
     return arr;
 }
 
+// Resample an arbitrary peak array to the desired bar count using max-pooling
+function resamplePeaks(peaks, target) {
+    if (!peaks?.length || peaks.length === target) return peaks;
+    const out = new Array(target);
+    const step = peaks.length / target;
+    for (let i = 0; i < target; i++) {
+        const a = Math.floor(i * step);
+        const b = Math.max(a + 1, Math.floor((i + 1) * step));
+        let m = 0;
+        for (let j = a; j < b && j < peaks.length; j++) m = Math.max(m, peaks[j]);
+        out[i] = m;
+    }
+    return out;
+}
+
 /** Full-mix waveform (overview, non-zoomed) with playhead line + track markers. */
-export const FullWaveform = ({ mixId, currentTime, duration, tracks = [], onSeek, height = 56 }) => {
+export const FullWaveform = ({ mixId, currentTime, duration, tracks = [], onSeek, height = 56, peaks = null }) => {
     const canvasRef = useRef(null);
     const containerRef = useRef(null);
-    const bars = useMemo(() => buildBars(mixId || "m", 360), [mixId]);
+    const synthBars = useMemo(() => buildBars(mixId || "m", 360), [mixId]);
+    const bars = useMemo(() => peaks?.length ? resamplePeaks(peaks, 360) : synthBars, [peaks, synthBars]);
 
     useEffect(() => {
         const canvas = canvasRef.current;
@@ -88,11 +104,18 @@ export const FullWaveform = ({ mixId, currentTime, duration, tracks = [], onSeek
 };
 
 /** Zoomed CDJ-style waveform - 30s window centered on the playhead, stereo-style dual. */
-export const ZoomedWaveform = ({ mixId, currentTime, duration, tracks = [], onSeek, height = 90, windowSec = 30 }) => {
+export const ZoomedWaveform = ({ mixId, currentTime, duration, tracks = [], onSeek, height = 90, windowSec = 30, peaks = null }) => {
     const canvasRef = useRef(null);
     const containerRef = useRef(null);
-    const bars = useMemo(() => buildBars((mixId || "m") + "-zoom", 1800), [mixId]);
-    const bars2 = useMemo(() => buildBars((mixId || "m") + "-zoom2", 1800), [mixId]);
+    const synthBars = useMemo(() => buildBars((mixId || "m") + "-zoom", 1800), [mixId]);
+    const synthBars2 = useMemo(() => buildBars((mixId || "m") + "-zoom2", 1800), [mixId]);
+    const bars = useMemo(() => peaks?.length ? resamplePeaks(peaks, 1800) : synthBars, [peaks, synthBars]);
+    const bars2 = useMemo(() => {
+        if (!peaks?.length) return synthBars2;
+        // Derive a complementary band from the same peaks: shifted + scaled down
+        const base = resamplePeaks(peaks, 1800);
+        return base.map((v, i) => v * 0.65 * (0.6 + 0.4 * Math.sin(i * 0.13)));
+    }, [peaks, synthBars2]);
 
     useEffect(() => {
         const canvas = canvasRef.current;

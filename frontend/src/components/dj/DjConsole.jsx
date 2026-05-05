@@ -1,6 +1,6 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usePlayer } from "../../contexts/PlayerContext";
-import { coverUrl, fmtTime } from "../../lib/api";
+import { api, coverUrl, fmtTime } from "../../lib/api";
 import { JogWheel } from "./JogWheel";
 import { MixerChannel } from "./MixerChannel";
 import { Crossfader } from "./Crossfader";
@@ -15,6 +15,18 @@ export const DjConsole = ({ mix, onPlayToggle, onSeek, isCurrent }) => {
     const tracks = mix.tracks || [];
     const trackIndex = isCurrent ? player.currentTrackIndex : -1;
     const playing = isCurrent && player.playing;
+
+    // Fetch real peaks once - falls back to synthetic if not ready
+    const [peaks, setPeaks] = useState(null);
+    useEffect(() => {
+        let alive = true;
+        api.waveform(mix.id).then((data) => {
+            if (alive && data?.ready && data.peaks?.length) {
+                setPeaks(data.peaks);
+            }
+        }).catch(() => {});
+        return () => { alive = false; };
+    }, [mix.id]);
 
     // Alternating decks from context (when this mix is the active one)
     const decksFromCtx = isCurrent ? player.decks : null;
@@ -99,9 +111,9 @@ export const DjConsole = ({ mix, onPlayToggle, onSeek, isCurrent }) => {
                         <span className="font-mono text-zinc-500" style={{ fontSize: 13 }}>-{fmtTime(remaining)}</span>
                     </div>
                 </div>
-                <ZoomedWaveform mixId={mix.id} currentTime={time} duration={dur} tracks={tracks} onSeek={onSeek} height={80} />
+                <ZoomedWaveform mixId={mix.id} currentTime={time} duration={dur} tracks={tracks} onSeek={onSeek} height={80} peaks={peaks} />
                 <div className="mt-1">
-                    <FullWaveform mixId={mix.id} currentTime={time} duration={dur} tracks={tracks} onSeek={onSeek} height={36} />
+                    <FullWaveform mixId={mix.id} currentTime={time} duration={dur} tracks={tracks} onSeek={onSeek} height={36} peaks={peaks} />
                 </div>
                 {/* Preview deck info */}
                 <div className="flex items-center justify-between mt-1">

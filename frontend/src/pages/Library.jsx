@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
-import { api } from "../lib/api";
+import { api, BACKEND_URL } from "../lib/api";
 import { MixCard } from "../components/MixCard";
-import { Disc3, Radio, Loader2 } from "lucide-react";
+import { Disc3, Radio, Loader2, Rss } from "lucide-react";
 
 export const Library = ({ search = "" }) => {
     const [mixes, setMixes] = useState([]);
@@ -55,6 +55,15 @@ export const Library = ({ search = "" }) => {
                         A digitized cabinet for your DJ sets. Drop a CUE sheet, get a synced tracklist.
                         Hit play — let the waveform roll.
                     </p>
+                    <a
+                        href={`${BACKEND_URL}/api/feed.xml`}
+                        target="_blank"
+                        rel="noreferrer"
+                        data-testid="rss-subscribe-link"
+                        className="mt-5 inline-flex items-center gap-2 px-4 py-2 border border-neon-cyan/40 text-neon-cyan label hover:bg-neon-cyan/10 transition-colors"
+                    >
+                        <Rss className="w-3.5 h-3.5" /> SUBSCRIBE · RSS PODCAST FEED
+                    </a>
                 </div>
             </section>
 

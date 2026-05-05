@@ -19,6 +19,7 @@ export const api = {
     listGenres: () => client.get("/mixes/genres").then((r) => r.data),
     seedDemo: () => client.post("/seed-demo").then((r) => r.data),
     compatibleMixes: (id, limit = 8) => client.get(`/mixes/${id}/compatible`, { params: { limit } }).then((r) => r.data),
+    waveform: (id) => client.get(`/mixes/${id}/waveform`).then((r) => r.data),
     trackArtwork: (artist, title) =>
         client.get("/tracks/artwork", { params: { artist: artist || "", title: title || "" } }).then((r) => r.data),
 

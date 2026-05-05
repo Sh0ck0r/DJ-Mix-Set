@@ -1,6 +1,6 @@
 """MIXDECK backend - DJ mix streaming with cue sheet support."""
 from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, Form, Depends, Request
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import StreamingResponse, FileResponse, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -13,14 +13,17 @@ import os
 import re
 import uuid
 import jwt
+import json
 import logging
 import mimetypes
 import aiofiles
 import shutil
 import httpx
 import asyncio
+from xml.sax.saxutils import escape as xml_escape
 
-from audio_analysis import read_audio_info, analyze_segment
+from audio_analysis import read_audio_info, analyze_segment, compute_waveform_peaks
+from cache import cache
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -29,7 +32,8 @@ STORAGE_DIR = ROOT_DIR / "storage"
 AUDIO_DIR = STORAGE_DIR / "audio"
 COVERS_DIR = STORAGE_DIR / "covers"
 CUES_DIR = STORAGE_DIR / "cues"
-for d in (AUDIO_DIR, COVERS_DIR, CUES_DIR):
+WAVEFORMS_DIR = STORAGE_DIR / "waveforms"
+for d in (AUDIO_DIR, COVERS_DIR, CUES_DIR, WAVEFORMS_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "mixdeck2026")
@@ -180,6 +184,7 @@ COVERART_URL = "https://coverartarchive.org/release"
 DISCOGS_SEARCH_URL = "https://api.discogs.com/database/search"
 MB_USER_AGENT = "MIXDECK/1.0 (https://github.com/mixdeck)"
 DISCOGS_TOKEN = os.environ.get("DISCOGS_TOKEN", "").strip()
+LONG_TTL_WF = 86400  # waveform peaks rarely change once computed - 24h
 
 
 def _normalize_key(artist: str, title: str) -> str:
@@ -382,6 +387,10 @@ async def verify(_: bool = Depends(require_admin)):
 
 @api_router.get("/mixes", response_model=List[Mix])
 async def list_mixes(q: Optional[str] = None, genre: Optional[str] = None):
+    cache_key = f"mixes:list:{q or ''}:{genre or ''}"
+    cached = await cache.get(cache_key)
+    if cached is not None:
+        return [Mix(**d) for d in cached]
     query: dict = {}
     if genre:
         query["genre"] = genre
@@ -392,20 +401,31 @@ async def list_mixes(q: Optional[str] = None, genre: Optional[str] = None):
             {"genre": {"$regex": q, "$options": "i"}},
         ]
     docs = await db.mixes.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    await cache.set(cache_key, docs, ttl=300)
     return [Mix(**d) for d in docs]
 
 
 @api_router.get("/mixes/genres")
 async def list_genres():
+    cached = await cache.get("genres")
+    if cached is not None:
+        return cached
     genres = await db.mixes.distinct("genre")
-    return {"genres": [g for g in genres if g]}
+    payload = {"genres": [g for g in genres if g]}
+    await cache.set("genres", payload, ttl=600)
+    return payload
 
 
 @api_router.get("/mixes/{mix_id}", response_model=Mix)
 async def get_mix(mix_id: str):
+    cache_key = f"mix:{mix_id}"
+    cached = await cache.get(cache_key)
+    if cached is not None:
+        return Mix(**cached)
     doc = await db.mixes.find_one({"id": mix_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Mix not found")
+    await cache.set(cache_key, doc, ttl=300)
     return Mix(**doc)
 
 
@@ -419,13 +439,10 @@ async def increment_play(mix_id: str):
 
 @api_router.get("/mixes/{mix_id}/compatible", response_model=List[Mix])
 async def compatible_mixes(mix_id: str, limit: int = 8):
-    """Find harmonically + tempo compatible mixes from the library.
-
-    Rules (classic harmonic-mixing):
-    - BPM within +/- 4 of this mix's BPM
-    - Camelot wheel: same key, same number adjacent (+/-1), or relative
-      major<->minor (same number, A<->B). Mode adjacent slots = perfect.
-    """
+    cache_key = f"compatible:{mix_id}:{limit}"
+    cached = await cache.get(cache_key)
+    if cached is not None:
+        return [Mix(**d) for d in cached]
     src = await db.mixes.find_one({"id": mix_id}, {"_id": 0})
     if not src:
         raise HTTPException(status_code=404, detail="Mix not found")
@@ -467,13 +484,16 @@ async def compatible_mixes(mix_id: str, limit: int = 8):
         if score > 0:
             scored.append((score, c))
     scored.sort(key=lambda t: -t[0])
-    return [Mix(**c) for _, c in scored[:limit]]
+    result_docs = [c for _, c in scored[:limit]]
+    await cache.set(cache_key, result_docs, ttl=300)
+    return [Mix(**c) for c in result_docs]
 
 
 @api_router.post("/admin/mixes", response_model=Mix, dependencies=[Depends(require_admin)])
 async def create_mix(body: MixCreate):
     mix = Mix(**body.model_dump())
     await db.mixes.insert_one(mix.model_dump())
+    await cache.invalidate_mixes()
     return mix
 
 
@@ -486,6 +506,7 @@ async def update_mix(mix_id: str, body: MixUpdate):
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Mix not found")
     doc = await db.mixes.find_one({"id": mix_id}, {"_id": 0})
+    await cache.invalidate_mixes()
     return Mix(**doc)
 
 
@@ -503,7 +524,11 @@ async def delete_mix(mix_id: str):
     cue_path = CUES_DIR / f"{mix_id}.cue"
     if cue_path.exists():
         cue_path.unlink()
+    wf_path = STORAGE_DIR / "waveforms" / f"{mix_id}.json"
+    if wf_path.exists():
+        wf_path.unlink()
     await db.mixes.delete_one({"id": mix_id})
+    await cache.invalidate_mixes()
     return {"ok": True}
 
 
@@ -699,6 +724,45 @@ async def get_cover(mix_id: str):
     raise HTTPException(status_code=404, detail="Cover not found")
 
 
+# ===== Real waveform peaks (decoded once, cached on disk) =====
+@api_router.get("/mixes/{mix_id}/waveform")
+async def get_waveform(mix_id: str):
+    """Return a downsampled peak array for the mix audio. Computed lazily."""
+    cache_key = f"waveform:{mix_id}"
+    cached = await cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    wf_path = WAVEFORMS_DIR / f"{mix_id}.json"
+    if wf_path.exists():
+        try:
+            payload = json.loads(wf_path.read_text(encoding="utf-8"))
+            await cache.set(cache_key, payload, ttl=LONG_TTL_WF)
+            return payload
+        except Exception:
+            wf_path.unlink(missing_ok=True)
+
+    doc = await db.mixes.find_one({"id": mix_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Mix not found")
+    src = doc.get("source_path") or (str(AUDIO_DIR / doc["audio_filename"]) if doc.get("audio_filename") else None)
+    if not src or not Path(src).exists():
+        return {"peaks": [], "ready": False}
+
+    # Heavy: run in thread pool
+    loop = asyncio.get_event_loop()
+    peaks = await loop.run_in_executor(None, compute_waveform_peaks, src, 1200)
+    if not peaks:
+        return {"peaks": [], "ready": False}
+    payload = {"peaks": peaks, "ready": True, "bars": len(peaks)}
+    try:
+        wf_path.write_text(json.dumps(payload), encoding="utf-8")
+    except Exception:
+        pass
+    await cache.set(cache_key, payload, ttl=LONG_TTL_WF)
+    return payload
+
+
 # ===== Bulk directory scan =====
 AUDIO_EXTS = {".mp3", ".flac", ".wav", ".m4a", ".ogg", ".aac", ".opus"}
 COVER_NAMES = ("cover", "folder", "front", "album")
@@ -773,6 +837,7 @@ async def _run_mix_analysis_inner(mix_id: str) -> None:
             if updates:
                 await db.mixes.update_one({"id": mix_id}, {"$set": updates})
             await db.mixes.update_one({"id": mix_id}, {"$set": {"analysis_status": "done"}})
+            await cache.invalidate_mixes()
             return
 
         # 2) Per-track analysis - analyze a 45s window from each track
@@ -814,6 +879,7 @@ async def _run_mix_analysis_inner(mix_id: str) -> None:
             {"id": mix_id},
             {"$set": {**updates, "tracks": analyzed, "analysis_status": "done"}},
         )
+        await cache.invalidate_mixes()
     except Exception as e:
         logging.getLogger("mixdeck").exception("Analysis failed for %s: %s", mix_id, e)
         await db.mixes.update_one({"id": mix_id}, {"$set": {"analysis_status": "failed"}})
@@ -996,6 +1062,9 @@ async def scan_directory(body: ScanRequest):
         except Exception as e:
             failed.append({"path": str(audio), "error": str(e)})
 
+    if added:
+        await cache.invalidate_mixes()
+
     return {
         "scanned": len(audio_files),
         "added_count": len(added),
@@ -1007,6 +1076,74 @@ async def scan_directory(body: ScanRequest):
         "failed": failed,
         "root": str(root),
     }
+
+
+# ===== RSS Podcast feed =====
+@api_router.get("/feed.xml")
+async def rss_feed(request: Request):
+    """iTunes-compatible RSS 2.0 podcast feed for all mixes with audio."""
+    cached = await cache.get("rss:feed")
+    if cached:
+        return Response(content=cached, media_type="application/rss+xml")
+    docs = await db.mixes.find({}, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    base = str(request.base_url).rstrip("/")
+
+    def item_url(m):
+        return f"{base}/api/stream/{m['id']}"
+
+    def cover(m):
+        if m.get("cover_url"):
+            return m["cover_url"]
+        if m.get("cover_filename") or m.get("source_cover_path"):
+            return f"{base}/api/cover/{m['id']}"
+        return ""
+
+    def length(m):
+        return int(m.get("duration") or 0)
+
+    items_xml = []
+    for m in docs:
+        # Skip mixes without playable audio
+        if not (m.get("audio_filename") or m.get("audio_url") or m.get("source_path")):
+            continue
+        title = xml_escape(m.get("title") or "Untitled")
+        author = xml_escape(m.get("artist") or "MIXDECK")
+        desc = xml_escape(m.get("description") or "")
+        guid = xml_escape(m["id"])
+        enc_url = xml_escape(item_url(m))
+        cv = xml_escape(cover(m))
+        pub = m.get("created_at") or datetime.now(timezone.utc).isoformat()
+        items_xml.append(f"""
+    <item>
+      <title>{title}</title>
+      <itunes:author>{author}</itunes:author>
+      <itunes:summary>{desc}</itunes:summary>
+      <description>{desc}</description>
+      <guid isPermaLink="false">{guid}</guid>
+      <pubDate>{xml_escape(pub)}</pubDate>
+      <enclosure url="{enc_url}" type="audio/mpeg" length="0"/>
+      <itunes:duration>{length(m)}</itunes:duration>
+      <itunes:image href="{cv}"/>
+      <link>{base}/mix/{guid}</link>
+    </item>""")
+
+    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>MIXDECK · Continuous DJ Mixes</title>
+    <link>{base}</link>
+    <atom:link href="{base}/api/feed.xml" rel="self" type="application/rss+xml"/>
+    <language>en-us</language>
+    <description>Continuous DJ mixes streamed from MIXDECK. Each episode is a full set with track-by-track cue points.</description>
+    <itunes:author>MIXDECK</itunes:author>
+    <itunes:explicit>false</itunes:explicit>
+    <itunes:category text="Music"/>
+    <itunes:image href="{base}/favicon.png"/>
+    {''.join(items_xml)}
+  </channel>
+</rss>"""
+    await cache.set("rss:feed", xml, ttl=600)
+    return Response(content=xml, media_type="application/rss+xml")
 
 
 # ===== Demo seed =====
@@ -1054,9 +1191,11 @@ logger = logging.getLogger("mixdeck")
 
 @app.on_event("startup")
 async def startup():
+    await cache.connect()
     logger.info("MIXDECK API ready. Storage at %s", STORAGE_DIR)
 
 
 @app.on_event("shutdown")
 async def shutdown():
+    await cache.disconnect()
     client.close()

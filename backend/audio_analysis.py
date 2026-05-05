@@ -169,3 +169,36 @@ def analyze_segment(
     except Exception as e:
         log.warning("analyze_segment failed for %s @ %s: %s", path, start_seconds, e)
         return {}
+
+
+def compute_waveform_peaks(
+    path: str | Path,
+    target_bars: int = 1200,
+    target_sr: int = 8000,
+) -> Optional[list[float]]:
+    """Decode the full audio and return ~target_bars normalized peak values [0..1].
+
+    Heavily downsampled so even a 6-hour FLAC fits in memory and decodes in
+    a few seconds. Result is a small JSON array (~10KB) cached on disk.
+    """
+    try:
+        y, sr = librosa.load(str(path), sr=target_sr, mono=True)
+        if y is None or len(y) == 0:
+            return None
+        n = len(y)
+        bin_size = max(1, n // target_bars)
+        peaks: list[float] = []
+        # Take RMS per bin for a smoother visual
+        for i in range(0, n, bin_size):
+            chunk = y[i:i + bin_size]
+            if len(chunk) == 0:
+                continue
+            rms = float(np.sqrt(np.mean(chunk * chunk)))
+            peaks.append(rms)
+        if not peaks:
+            return None
+        m = max(peaks) or 1.0
+        return [round(p / m, 4) for p in peaks]
+    except Exception as e:
+        log.warning("compute_waveform_peaks failed for %s: %s", path, e)
+        return None

@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback } from "react";
 import { Navigate } from "react-router-dom";
 import { api, coverUrl, fmtTime } from "../lib/api";
-import { Upload, Plus, Trash2, FileAudio, FileText, Image as ImageIcon, Loader2, CheckCircle2, Radar, Activity, AlertTriangle } from "lucide-react";
+import { Upload, Plus, Trash2, FileAudio, FileText, Image as ImageIcon, Loader2, CheckCircle2, Radar, Activity, AlertTriangle, Edit3 } from "lucide-react";
 import { toast } from "sonner";
 import { BulkScan } from "../components/BulkScan";
+import { MixEditModal } from "../components/MixEditModal";
 
 const Field = ({ label, ...props }) => (
     <label className="block">
@@ -219,6 +220,7 @@ const NewMixForm = ({ onCreated }) => {
 const AdminMixRow = ({ mix, onChanged }) => {
     const [busy, setBusy] = useState(false);
     const [status, setStatus] = useState(mix.analysis_status || "none");
+    const [editing, setEditing] = useState(false);
     const cover = coverUrl(mix);
 
     useEffect(() => {
@@ -309,6 +311,14 @@ const AdminMixRow = ({ mix, onChanged }) => {
             <div className="flex items-center gap-1.5">
                 <AnalysisBadge status={status} />
                 <button
+                    onClick={() => setEditing(true)}
+                    data-testid="edit-mix-button"
+                    className="w-9 h-9 border border-[#1A1D2E] hover:border-neon-cyan hover:text-neon-cyan text-zinc-400 flex items-center justify-center transition-colors"
+                    title="Edit metadata"
+                >
+                    <Edit3 className="w-4 h-4" />
+                </button>
+                <button
                     onClick={analyze}
                     disabled={status === "pending" || status === "running"}
                     data-testid="analyze-mix-button"
@@ -334,6 +344,12 @@ const AdminMixRow = ({ mix, onChanged }) => {
                     <Trash2 className="w-4 h-4" />
                 </button>
             </div>
+            <MixEditModal
+                mix={mix}
+                open={editing}
+                onClose={() => setEditing(false)}
+                onSaved={onChanged}
+            />
         </div>
     );
 };
