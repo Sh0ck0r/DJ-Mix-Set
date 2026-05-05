@@ -52,7 +52,10 @@ export const api = {
         }).then((r) => r.data);
     },
     scanDirectory: (path, recursive = true, default_genre = "", analyze = true) =>
-        client.post("/admin/scan", { path, recursive, default_genre, analyze }, { timeout: 180000 }).then((r) => r.data),
+        client.post("/admin/scan", { path, recursive, default_genre, analyze }, { timeout: 30000 }).then((r) => r.data),
+    scanStatus: (taskId) => client.get(`/admin/scan/${taskId}`).then((r) => r.data),
+    analysisOverview: () => client.get("/admin/analysis_overview").then((r) => r.data),
+    analyzeAll: (force = false) => client.post(`/admin/analyze_all`, null, { params: { force } }).then((r) => r.data),
     analyzeMix: (id) => client.post(`/admin/mixes/${id}/analyze`).then((r) => r.data),
     analysisStatus: (id) => client.get(`/mixes/${id}/analysis_status`).then((r) => r.data),
     setDuration: (id, duration) => {

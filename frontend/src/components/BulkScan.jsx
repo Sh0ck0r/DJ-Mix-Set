@@ -10,6 +10,7 @@ export const BulkScan = ({ onScanned }) => {
     const [genre, setGenre] = useState("");
     const [busy, setBusy] = useState(false);
     const [result, setResult] = useState(null);
+    const [progress, setProgress] = useState(null);
 
     const run = async (e) => {
         e.preventDefault();
@@ -20,25 +21,47 @@ export const BulkScan = ({ onScanned }) => {
         localStorage.setItem("mixdeck_scan_path", path);
         setBusy(true);
         setResult(null);
+        setProgress(null);
         try {
-            const data = await api.scanDirectory(path.trim(), recursive, genre.trim(), analyze);
-            setResult(data);
-            if (data.added_count > 0) {
-                toast.success(`IMPORTED ${data.added_count} MIX${data.added_count === 1 ? "" : "ES"}`);
-                if (analyze && data.analysis_queued) {
-                    toast.message(`ANALYZING ${data.analysis_queued} IN BACKGROUND`, {
-                        description: "BPM + key detection in progress — refresh the library to see results.",
-                    });
+            const { task_id } = await api.scanDirectory(path.trim(), recursive, genre.trim(), analyze);
+            // Poll for completion
+            let last = null;
+            const poll = async () => {
+                try {
+                    const s = await api.scanStatus(task_id);
+                    setProgress(s);
+                    last = s;
+                    if (s.status === "running") setTimeout(poll, 600);
+                    else finish(s);
+                } catch (err) {
+                    setBusy(false);
+                    toast.error("Lost connection to scan task");
                 }
-                onScanned?.();
-            } else if (data.skipped_count > 0 && data.failed_count === 0) {
-                toast.success(`ALL ${data.skipped_count} ALREADY INDEXED`);
-            } else if (data.scanned === 0) {
-                toast.error("No audio files found");
-            }
+            };
+            const finish = (s) => {
+                setResult(s);
+                setBusy(false);
+                if (s.status === "failed") {
+                    toast.error(s.error || "Scan failed");
+                    return;
+                }
+                if (s.added_count > 0) {
+                    toast.success(`IMPORTED ${s.added_count} MIX${s.added_count === 1 ? "" : "ES"}`);
+                    if (analyze && s.analysis_queued) {
+                        toast.message(`ANALYZING ${s.analysis_queued} IN BACKGROUND`, {
+                            description: "BPM + key detection in progress — refresh the library to see results.",
+                        });
+                    }
+                    onScanned?.();
+                } else if (s.skipped_count > 0 && s.failed_count === 0) {
+                    toast.success(`ALL ${s.skipped_count} ALREADY INDEXED`);
+                } else if (s.total === 0) {
+                    toast.error("No audio files found");
+                }
+            };
+            poll();
         } catch (err) {
             toast.error(err.response?.data?.detail || "Scan failed");
-        } finally {
             setBusy(false);
         }
     };
@@ -116,7 +139,35 @@ export const BulkScan = ({ onScanned }) => {
                 </div>
             </form>
 
-            {result && (
+            {progress && busy && (
+                <div className="mt-5 border border-neon-cyan/30 bg-black/40 p-3" data-testid="scan-progress">
+                    <div className="flex items-center justify-between mb-2">
+                        <span className="label text-neon-cyan flex items-center gap-2">
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                            SCANNING — {progress.processed}/{progress.total || "?"}
+                        </span>
+                        <span className="label text-zinc-500">
+                            {progress.added_count} ADDED · {progress.skipped_count} SKIPPED · {progress.failed_count} FAILED
+                        </span>
+                    </div>
+                    <div className="h-1.5 bg-[#0a0c14] border border-[#1A1D2E] overflow-hidden">
+                        <div
+                            className="h-full bg-neon-cyan transition-all duration-200"
+                            style={{
+                                width: `${progress.total > 0 ? (progress.processed / progress.total) * 100 : 0}%`,
+                                boxShadow: "0 0 12px rgba(0,240,255,0.6)",
+                            }}
+                        />
+                    </div>
+                    {progress.current_file && (
+                        <div className="font-mono text-[11px] text-zinc-400 mt-2 truncate">
+                            <span className="text-zinc-600">▸ </span>{progress.current_file}
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {result && !busy && (
                 <ScanResult result={result} />
             )}
         </div>
@@ -126,7 +177,7 @@ export const BulkScan = ({ onScanned }) => {
 const ScanResult = ({ result }) => (
     <div className="mt-5 border border-[#1A1D2E]" data-testid="scan-result">
         <div className="grid grid-cols-4 text-center border-b border-[#1A1D2E]">
-            <Stat label="SCANNED" value={result.scanned} color="cyan" />
+            <Stat label="SCANNED" value={result.total ?? result.scanned ?? 0} color="cyan" />
             <Stat label="ADDED" value={result.added_count} color="green" />
             <Stat label="SKIPPED" value={result.skipped_count} color="muted" />
             <Stat label="FAILED" value={result.failed_count} color={result.failed_count ? "red" : "muted"} />

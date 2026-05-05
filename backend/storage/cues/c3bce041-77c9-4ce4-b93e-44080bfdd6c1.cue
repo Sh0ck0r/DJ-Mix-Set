@@ -1,0 +1,11 @@
+PERFORMER "WF Tester"
+TITLE "WF SAMPLE"
+FILE "sample.mp3" MP3
+  TRACK 01 AUDIO
+    TITLE "Intro"
+    PERFORMER "WF Tester"
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    TITLE "Outro"
+    PERFORMER "WF Tester"
+    INDEX 01 00:00:30

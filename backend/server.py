@@ -973,116 +973,194 @@ def _extract_cue_header(content: str) -> tuple[str, str]:
     return title, performer
 
 
+# ===== Scan task tracking =====
+_scan_tasks: dict[str, dict] = {}
+
+
+async def _run_scan(task_id: str, body: ScanRequest) -> None:
+    state = _scan_tasks[task_id]
+    try:
+        root = Path(body.path).expanduser().resolve()
+        if not root.exists() or not root.is_dir():
+            state["status"] = "failed"
+            state["error"] = f"Path does not exist or is not a directory: {root}"
+            state["finished_at"] = datetime.now(timezone.utc).isoformat()
+            return
+
+        audio_files: list[Path] = []
+        if body.recursive:
+            for p in root.rglob("*"):
+                if p.is_file() and p.suffix.lower() in AUDIO_EXTS:
+                    audio_files.append(p)
+        else:
+            for p in root.iterdir():
+                if p.is_file() and p.suffix.lower() in AUDIO_EXTS:
+                    audio_files.append(p)
+
+        state["root"] = str(root)
+        state["total"] = len(audio_files)
+
+        existing = set()
+        async for d in db.mixes.find({"source_path": {"$ne": None}}, {"source_path": 1, "_id": 0}):
+            if d.get("source_path"):
+                existing.add(d["source_path"])
+
+        for audio in sorted(audio_files):
+            state["processed"] += 1
+            state["current_file"] = audio.name
+            try:
+                src = str(audio)
+                if src in existing:
+                    state["skipped"].append({"path": src, "reason": "already_ingested"})
+                    state["skipped_count"] += 1
+                    continue
+
+                title = audio.stem
+                artist = ""
+                tracks: list[dict] = []
+                cue = _find_cue(audio)
+                if cue:
+                    try:
+                        content = cue.read_text(encoding="utf-8", errors="replace")
+                    except UnicodeDecodeError:
+                        content = cue.read_text(encoding="latin-1", errors="replace")
+                    cue_title, cue_performer = _extract_cue_header(content)
+                    if cue_title:
+                        title = cue_title
+                    if cue_performer:
+                        artist = cue_performer
+                    tracks = [t.model_dump() for t in parse_cue(content)]
+                cover = _find_cover(audio)
+
+                mix = Mix(
+                    title=title,
+                    artist=artist,
+                    genre=body.default_genre or "",
+                    source_path=src,
+                    source_cover_path=str(cover) if cover else None,
+                    tracks=[Track(**t) for t in tracks],
+                )
+                doc = mix.model_dump()
+                await db.mixes.insert_one(doc)
+
+                if cue:
+                    try:
+                        (CUES_DIR / f"{mix.id}.cue").write_text(
+                            cue.read_text(encoding="utf-8", errors="replace"), encoding="utf-8"
+                        )
+                    except Exception:
+                        pass
+
+                state["added"].append({
+                    "id": mix.id,
+                    "title": title,
+                    "artist": artist,
+                    "path": src,
+                    "cue": bool(cue),
+                    "tracks": len(tracks),
+                    "cover": bool(cover),
+                })
+                state["added_count"] += 1
+                existing.add(src)
+                if body.analyze:
+                    await db.mixes.update_one({"id": mix.id}, {"$set": {"analysis_status": "pending"}})
+                    _schedule_analysis(mix.id)
+            except Exception as e:
+                state["failed"].append({"path": str(audio), "error": str(e)})
+                state["failed_count"] += 1
+
+        if state["added_count"] > 0:
+            await cache.invalidate_mixes()
+        state["analysis_queued"] = state["added_count"] if body.analyze else 0
+        state["status"] = "done"
+        state["finished_at"] = datetime.now(timezone.utc).isoformat()
+    except Exception as e:
+        logging.getLogger("mixdeck").exception("Scan task %s crashed", task_id)
+        state["status"] = "failed"
+        state["error"] = str(e)
+        state["finished_at"] = datetime.now(timezone.utc).isoformat()
+
+
 @api_router.post("/admin/scan", dependencies=[Depends(require_admin)])
 async def scan_directory(body: ScanRequest):
-    """Walk a directory and ingest every audio file (with optional matching .cue).
+    """Kick off a background scan and return a task_id for polling progress.
 
     Idempotent: a file is skipped if a mix with the same source_path already exists.
     Files are referenced in place — no copying, no disk duplication.
     """
+    # Quick path validation up-front so the user gets an immediate error
     root = Path(body.path).expanduser().resolve()
     if not root.exists() or not root.is_dir():
         raise HTTPException(status_code=400, detail=f"Path does not exist or is not a directory: {root}")
 
-    # Collect audio files
-    audio_files: list[Path] = []
-    if body.recursive:
-        for p in root.rglob("*"):
-            if p.is_file() and p.suffix.lower() in AUDIO_EXTS:
-                audio_files.append(p)
-    else:
-        for p in root.iterdir():
-            if p.is_file() and p.suffix.lower() in AUDIO_EXTS:
-                audio_files.append(p)
-
-    added = []
-    skipped = []
-    failed = []
-
-    # Pre-fetch all existing source_paths for O(1) dup check
-    existing = set()
-    async for d in db.mixes.find({"source_path": {"$ne": None}}, {"source_path": 1, "_id": 0}):
-        if d.get("source_path"):
-            existing.add(d["source_path"])
-
-    for audio in sorted(audio_files):
-        try:
-            src = str(audio)
-            if src in existing:
-                skipped.append({"path": src, "reason": "already_ingested"})
-                continue
-
-            # default metadata from filename
-            title = audio.stem
-            artist = ""
-            tracks: list[dict] = []
-
-            cue = _find_cue(audio)
-            if cue:
-                try:
-                    content = cue.read_text(encoding="utf-8", errors="replace")
-                except UnicodeDecodeError:
-                    content = cue.read_text(encoding="latin-1", errors="replace")
-                cue_title, cue_performer = _extract_cue_header(content)
-                if cue_title:
-                    title = cue_title
-                if cue_performer:
-                    artist = cue_performer
-                tracks = [t.model_dump() for t in parse_cue(content)]
-
-            cover = _find_cover(audio)
-
-            mix = Mix(
-                title=title,
-                artist=artist,
-                genre=body.default_genre or "",
-                source_path=src,
-                source_cover_path=str(cover) if cover else None,
-                tracks=[Track(**t) for t in tracks],
-            )
-            doc = mix.model_dump()
-            await db.mixes.insert_one(doc)
-
-            # Persist the cue file for the record too (helps admin delete behavior)
-            if cue:
-                try:
-                    (CUES_DIR / f"{mix.id}.cue").write_text(
-                        cue.read_text(encoding="utf-8", errors="replace"), encoding="utf-8"
-                    )
-                except Exception:
-                    pass
-
-            added.append({
-                "id": mix.id,
-                "title": title,
-                "artist": artist,
-                "path": src,
-                "cue": bool(cue),
-                "tracks": len(tracks),
-                "cover": bool(cover),
-            })
-            existing.add(src)
-            # queue background analysis (BPM + key) for this newly added mix
-            if body.analyze:
-                await db.mixes.update_one({"id": mix.id}, {"$set": {"analysis_status": "pending"}})
-                _schedule_analysis(mix.id)
-        except Exception as e:
-            failed.append({"path": str(audio), "error": str(e)})
-
-    if added:
-        await cache.invalidate_mixes()
-
-    return {
-        "scanned": len(audio_files),
-        "added_count": len(added),
-        "skipped_count": len(skipped),
-        "failed_count": len(failed),
-        "analysis_queued": len(added) if body.analyze else 0,
-        "added": added,
-        "skipped": skipped,
-        "failed": failed,
+    task_id = str(uuid.uuid4())
+    _scan_tasks[task_id] = {
+        "task_id": task_id,
+        "status": "running",
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "finished_at": None,
         "root": str(root),
+        "processed": 0,
+        "total": 0,
+        "current_file": None,
+        "added_count": 0,
+        "skipped_count": 0,
+        "failed_count": 0,
+        "analysis_queued": 0,
+        "added": [],
+        "skipped": [],
+        "failed": [],
+        "error": None,
     }
+    asyncio.create_task(_run_scan(task_id, body))
+    # Cull old finished tasks (keep last 20)
+    finished = [(tid, t) for tid, t in _scan_tasks.items() if t["status"] != "running"]
+    if len(finished) > 20:
+        finished.sort(key=lambda x: x[1].get("finished_at") or "")
+        for tid, _ in finished[: len(finished) - 20]:
+            _scan_tasks.pop(tid, None)
+    return {"task_id": task_id, "status": "running"}
+
+
+@api_router.get("/admin/scan/{task_id}", dependencies=[Depends(require_admin)])
+async def scan_task_status(task_id: str):
+    state = _scan_tasks.get(task_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Scan task not found or expired")
+    return state
+
+
+@api_router.get("/admin/analysis_overview", dependencies=[Depends(require_admin)])
+async def analysis_overview():
+    """Library-wide BPM + key analysis status counters."""
+    counts = {"none": 0, "pending": 0, "running": 0, "done": 0, "failed": 0}
+    async for d in db.mixes.find({}, {"analysis_status": 1, "_id": 0}):
+        s = d.get("analysis_status") or "none"
+        counts[s] = counts.get(s, 0) + 1
+    total = sum(counts.values())
+    return {"counts": counts, "total": total, "active_workers": len(_analysis_locks)}
+
+
+@api_router.post("/admin/analyze_all", dependencies=[Depends(require_admin)])
+async def analyze_all(force: bool = False):
+    """Re-queue analysis for every mix in the library that has an audio source.
+    By default skips mixes already 'done'. Pass force=true to re-analyse everything.
+    """
+    queued = 0
+    skipped = 0
+    async for d in db.mixes.find({}, {"id": 1, "analysis_status": 1, "source_path": 1, "audio_filename": 1, "_id": 0}):
+        if not (d.get("source_path") or d.get("audio_filename")):
+            skipped += 1
+            continue
+        if not force and d.get("analysis_status") == "done":
+            skipped += 1
+            continue
+        await db.mixes.update_one({"id": d["id"]}, {"$set": {"analysis_status": "pending"}})
+        _schedule_analysis(d["id"])
+        queued += 1
+    if queued:
+        await cache.invalidate_mixes()
+    return {"queued": queued, "skipped": skipped}
 
 
 # ===== RSS Podcast feed =====

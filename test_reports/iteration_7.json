@@ -1,0 +1,39 @@
+{
+  "summary": "Iteration 7 — background scan + analysis_overview e2e test (backend + frontend). New test_bg_scan.py: 8/8 passed covering auth (401/403 missing & bad token), 400 sync validation on invalid path, 404 on unknown task_id, polling running->done, idempotency (already_ingested skip on rescan), cache invalidation (GET /api/mixes reflects added mixes immediately), analysis_overview shape (counts sum == total). Frontend e2e: admin login -> /admin -> BULK SCAN toggle -> /tmp -> uncheck AUTO BPM -> SCAN NOW -> scan-result rendered with correct stats (3 scanned, 1 added, 2 already_ingested skipped, 0 failed) -> no console errors. Public regression: homepage lists 6 mixes, /mix/{id} player page renders DJ deck UI without errors. Cleanup performed (test mix deleted via DELETE /api/admin/mixes/{id}).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/admin/scan (legacy tests)", "issue": "Pre-existing tests in test_scan.py and test_analysis.py (and 4 errors in test_phase2.py fixtures that depend on them) still call POST /api/admin/scan and read added_count/added/skipped directly from the response. The new contract returns {task_id, status:'running'} only — these 10 tests + 4 fixture errors need to be migrated to the polling pattern (see test_bg_scan.py for working reference). Functional code is correct; only legacy regression tests are broken."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_bg_scan.py",
+    "/app/test_reports/pytest/test_bg_scan_results.xml",
+    "/app/test_reports/pytest/pytest_results_iter7.xml"
+  ],
+  "action_items": [
+    "Update /app/backend/tests/test_scan.py and /app/backend/tests/test_analysis.py to use task_id polling pattern (POST returns {task_id}, then poll GET /api/admin/scan/{task_id} until status=='done'). Reference: test_bg_scan.py::test_scan_full_flow_on_tmp.",
+    "test_phase2.py has 4 fixture-cascade errors stemming from the same legacy expectation; fixing the scan tests will likely resolve those too."
+  ],
+  "critical_code_review_comments": [
+    "_scan_tasks is in-process memory only — if backend restarts mid-scan, polling clients see 404 and any in-flight scan is lost. Acceptable for single-replica self-hosted, but document this or persist task state in Mongo.",
+    "scan_directory does sync Path.resolve() in the request handler — fine for short paths but a deeply symlinked fs could block the event loop. Consider running validation in a thread pool too.",
+    "_run_scan iterates root.rglob('*') synchronously inside the async task — for huge libraries this blocks the event loop while building audio_files list. Consider chunked / threadpool walk for massive directories (the very scenario this background task was designed for).",
+    "analysis_overview iterates the full mixes collection on every call — at scale, replace with an aggregate $group on analysis_status."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_bg_scan.py (new)"
+  ],
+  "success_rate": {"backend": "100% (8/8 new tests; legacy regression tests outdated, see action_items)", "frontend": "100%"},
+  "test_credentials": "Admin password: mixdeck2026 (read from /app/memory/test_credentials.md)",
+  "seed_data_creation": "None new. Test created one transient real_audio mix during frontend e2e — deleted via DELETE /api/admin/mixes/{id} during cleanup. test_bg_scan.py self-cleans its own scanned mixes.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Background scan feature is production-ready. POST /api/admin/scan returns {task_id, status:'running'} immediately (sync 400 only on invalid path). GET /api/admin/scan/{task_id} returns full state (processed/total/current_file/added_count/skipped_count/failed_count/added[]/skipped[]/failed[]/status). GET /api/admin/analysis_overview returns {counts:{none,pending,running,done,failed}, total, active_workers}. Auth, idempotency, cache invalidation, and frontend e2e all verified. Only outstanding work: migrate legacy /app/backend/tests/test_scan.py and test_analysis.py to the new task_id polling pattern (currently failing due to outdated assumptions, NOT due to backend bugs).",
+  "rca of the issue": "N/A — feature works as designed. The 10 legacy test failures are NOT backend bugs; they assert against an old synchronous response shape that the new background-task contract no longer returns. Fix is purely in the test files."
+}
