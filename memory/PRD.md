@@ -39,17 +39,17 @@
 - **Draggable JogWheels** — pointer-down on the active disc lets you spin it; 360° of rotation = 30 seconds of audio (CDJ-style). Inactive jog is non-interactive. Touch-friendly via Pointer Events API.
 - **Track-art crossfade** on jog wheels — current art fades into the disc smoothly, previous art briefly retained for blend.
 - **Deep-seek share links** — `?t=MM:SS` (also `HH:MM:SS` or raw seconds) auto-loads the mix and seeks to the timestamp once metadata is ready. New SHARE LINK button copies a timestamped URL to clipboard.
-- **Harmonic recommendations** — `GET /api/mixes/{id}/compatible` finds mixes within ±4 BPM and adjacent Camelot keys (same key, ±1 number, relative major↔minor). Frontend shows a recs row at the bottom of every Mix Detail page. **15/15 new backend tests pass, 0 regressions.**
+- **Harmonic recommendations** — `GET /api/mixes/{id}/compatible` finds mixes within ±4 BPM and adjacent Camelot keys (same key, ±1 number, relative major↔minor). Frontend shows a recs row at the bottom of every Mix Detail page.
 - **Manual key/camelot override** — MixUpdate now accepts `key` and `camelot` fields so admins can correct analyzer output without touching Mongo.
 - **Bulk directory scan** — recursive in-place ingest, zero disk dup, idempotent, admin UI panel with results table.
 - **Automatic audio analysis** — librosa + mutagen. Per-track BPM + musical key + Camelot code. Concurrency-limited background task queue. Live ANALYZING→ANALYZED status badges.
-- **Full DJ Console redesign** — the DECK section is now a hardware-style console (`XD-01` layout) featuring:
-  - Twin **JogWheels** (Deck A playing with rotating album art + progress ring, Deck B previewing next cue point)
-  - **Dual CDJ-style waveform** (cyan top + orange bottom stereo bands, zoomed 30s window with center playhead diamond, full-mix overview below with track markers)
-  - **4-channel Mixer** with hi/mid/low EQ knobs (knob indicators breathe with analyser band energy), per-channel VU meters + faders
-  - **Master volume** + **Crossfader** with tick marks + glowing fader cap
-  - **Performance Pads** (8 colored hot-cue pads mapped to first 8 tracks, tinted by Camelot key, one-tap jump-to-track)
-  - Lint clean, responsive, mobile-friendly layout
+- **Full DJ Console redesign** — XD-01-style twin jogwheels, dual CDJ waveform, 4-channel mixer, master volume + crossfader, performance pads.
+
+## Implemented (2026-02 — Phase 3: Background Scan + Library-Wide Analysis Overview)
+- **Background scan task with live progress** — `POST /api/admin/scan` now returns `{task_id, status:"running"}` immediately and runs the directory walk + ingest in an asyncio task. New `GET /api/admin/scan/{task_id}` returns full live state (`processed`, `total`, `current_file`, `added/skipped/failed` counts + arrays, terminal `status`). Fast path validation (invalid path → 400 sync). Old finished tasks auto-culled (keeps last 20). No more HTTP timeouts on massive libraries.
+- **Live progress UI** — `BulkScan.jsx` polls every 600ms, shows a glowing progress bar with `processed/total`, current filename, and live `added/skipped/failed` counters. Final state renders the same imported/skipped/failed result tables as before.
+- **Analysis overview** — `GET /api/admin/analysis_overview` returns library-wide BPM+Key analysis counters (`{counts:{none,pending,running,done,failed}, total, active_workers}`).
+- **Test suite migration** — added `tests/_scan_helpers.py::scan_and_wait()` polling helper. Migrated `test_scan.py`, `test_analysis.py`, `test_phase2.py` to the new contract. **78/78 backend tests pass** (was 70/70), zero regressions. New `test_bg_scan.py` covers auth, validation, polling, idempotency, cache invalidation, and overview shape.
 
 ## Tech / Libraries
 - Backend: fastapi, motor, pydantic, PyJWT, aiofiles, python-multipart
@@ -58,12 +58,9 @@
 - Colors: void #050505, surface #0D0E15, cyan #00F0FF, green #39FF14, red #FF003C
 
 ## Backlog (P0/P1/P2)
-- P1: Discogs tier-3 artwork fallback (trance/electronic whitelabel coverage beyond iTunes + MusicBrainz)
-- P1: Edit mix metadata inline (currently requires delete + re-upload)
-- P1: Background/streaming scan progress (for very large libraries 1000+ files)
-- P2: RSS / podcast feed auto-export so listeners can subscribe in Apple Podcasts / Overcast
-- P2: Share links with deep-seek (`?t=00:12:34`)
+- P0: Refactor `server.py` (1290 lines) into routers (`mixes_router.py`, `admin_router.py`, `streaming_router.py`, `feed_router.py`)
+- P1: Validate jog wheel nudge logic accurately adjusts playback ±5s on drag scrub
+- P1: Surface `analysis_overview` counts in the AdminDashboard header (UI consumer for the new endpoint)
 - P2: "Also in this genre" row on mix detail
 - P2: Drag-to-reorder tracks, manual track list editor
-- P2: Waveform from real audio peaks (decode audio to canvas once instead of deterministic synthetic waveform)
 - P2: Download-for-offline / mix archive zip

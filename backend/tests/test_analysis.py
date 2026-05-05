@@ -8,6 +8,8 @@ import requests
 from pathlib import Path
 from dotenv import load_dotenv
 
+from _scan_helpers import scan_and_wait
+
 load_dotenv(Path(__file__).resolve().parents[2] / "frontend" / ".env")
 
 BASE_URL = os.environ["REACT_APP_BACKEND_URL"].rstrip("/")
@@ -82,11 +84,11 @@ def test_analysis_status_public_404(session):
 
 
 def test_scan_analyze_false_does_not_queue(session, auth, scan_dir):
-    r = session.post(
-        f"{API}/admin/scan",
-        json={"path": str(scan_dir), "recursive": False, "analyze": False},
-        headers=auth,
-        timeout=30,
+    r = scan_and_wait(
+        session,
+        API,
+        auth,
+        {"path": str(scan_dir), "recursive": False, "analyze": False},
     )
     assert r.status_code == 200, r.text
     body = r.json()
@@ -99,11 +101,11 @@ def test_scan_analyze_false_does_not_queue(session, auth, scan_dir):
 
 
 def test_scan_analyze_true_runs_end_to_end(session, auth, scan_dir):
-    r = session.post(
-        f"{API}/admin/scan",
-        json={"path": str(scan_dir), "recursive": False},
-        headers=auth,
-        timeout=30,
+    r = scan_and_wait(
+        session,
+        API,
+        auth,
+        {"path": str(scan_dir), "recursive": False},
     )
     assert r.status_code == 200, r.text
     body = r.json()
@@ -138,11 +140,11 @@ def test_scan_analyze_true_runs_end_to_end(session, auth, scan_dir):
 
 
 def test_rescan_does_not_requeue(session, auth, scan_dir):
-    r = session.post(
-        f"{API}/admin/scan",
-        json={"path": str(scan_dir), "recursive": False},
-        headers=auth,
-        timeout=30,
+    r = scan_and_wait(
+        session,
+        API,
+        auth,
+        {"path": str(scan_dir), "recursive": False},
     )
     assert r.status_code == 200
     body = r.json()

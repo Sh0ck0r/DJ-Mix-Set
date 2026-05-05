@@ -11,6 +11,8 @@ import pytest
 import requests
 from dotenv import load_dotenv
 
+from _scan_helpers import scan_and_wait
+
 load_dotenv(Path(__file__).resolve().parents[2] / "frontend" / ".env")
 
 BASE_URL = os.environ["REACT_APP_BACKEND_URL"].rstrip("/")
@@ -163,11 +165,11 @@ def test_scan_bad_path_returns_400(session, auth):
 
 # ========= Scan behavior =========
 def test_scan_recursive_ingests_all(session, auth, scan_dir):
-    r = session.post(
-        f"{API}/admin/scan",
-        json={"path": str(scan_dir), "recursive": True, "default_genre": "TEST_Scan"},
-        headers=auth,
-        timeout=60,
+    r = scan_and_wait(
+        session,
+        API,
+        auth,
+        {"path": str(scan_dir), "recursive": True, "default_genre": "TEST_Scan"},
     )
     assert r.status_code == 200, r.text
     body = r.json()
@@ -236,11 +238,11 @@ def test_scan_recursive_ingests_all(session, auth, scan_dir):
 
 def test_scan_idempotent(session, auth, scan_dir):
     # Re-run same scan; expect all 4 skipped
-    r = session.post(
-        f"{API}/admin/scan",
-        json={"path": str(scan_dir), "recursive": True},
-        headers=auth,
-        timeout=60,
+    r = scan_and_wait(
+        session,
+        API,
+        auth,
+        {"path": str(scan_dir), "recursive": True},
     )
     assert r.status_code == 200
     body = r.json()
@@ -258,11 +260,11 @@ def test_scan_non_recursive_skips_subfolders(session, auth, scan_dir):
         if str(scan_dir) in sp:
             session.delete(f"{API}/admin/mixes/{m['id']}", headers=auth, timeout=15)
 
-    r = session.post(
-        f"{API}/admin/scan",
-        json={"path": str(scan_dir), "recursive": False},
-        headers=auth,
-        timeout=30,
+    r = scan_and_wait(
+        session,
+        API,
+        auth,
+        {"path": str(scan_dir), "recursive": False},
     )
     assert r.status_code == 200
     body = r.json()

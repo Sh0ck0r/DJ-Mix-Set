@@ -16,6 +16,8 @@ import redis as redis_sync
 import requests
 from dotenv import load_dotenv
 
+from _scan_helpers import scan_and_wait
+
 load_dotenv(Path(__file__).resolve().parents[2] / "frontend" / ".env")
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
@@ -64,11 +66,11 @@ def scanned_mix(session, admin_headers):
     wf = Path(WF_TEST_DIR)
     if not (wf / "sample.mp3").exists():
         pytest.skip("/tmp/wf_test/sample.mp3 missing")
-    r = session.post(
-        f"{API}/admin/scan",
-        json={"path": WF_TEST_DIR, "recursive": False, "analyze": False, "default_genre": "TEST_WF"},
-        headers=admin_headers,
-        timeout=60,
+    r = scan_and_wait(
+        session,
+        API,
+        admin_headers,
+        {"path": WF_TEST_DIR, "recursive": False, "analyze": False, "default_genre": "TEST_WF"},
     )
     assert r.status_code == 200, f"scan failed: {r.status_code} {r.text}"
     body = r.json()
