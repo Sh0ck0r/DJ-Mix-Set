@@ -434,6 +434,7 @@ async def increment_play(mix_id: str):
     res = await db.mixes.update_one({"id": mix_id}, {"$inc": {"play_count": 1}})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Mix not found")
+    await cache.invalidate_mixes()
     return {"ok": True}
 
 
@@ -558,6 +559,7 @@ async def upload_audio(mix_id: str, file: UploadFile = File(...)):
     await db.mixes.update_one(
         {"id": mix_id}, {"$set": {"audio_filename": out_name, "audio_url": None}}
     )
+    await cache.invalidate_mixes()
     return {"ok": True, "filename": out_name}
 
 
@@ -577,6 +579,7 @@ async def upload_cover(mix_id: str, file: UploadFile = File(...)):
     await db.mixes.update_one(
         {"id": mix_id}, {"$set": {"cover_filename": out_name, "cover_url": None}}
     )
+    await cache.invalidate_mixes()
     return {"ok": True, "filename": out_name}
 
 
@@ -597,6 +600,7 @@ async def upload_cue(mix_id: str, file: UploadFile = File(...)):
         {"id": mix_id},
         {"$set": {"tracks": [t.model_dump() for t in tracks]}},
     )
+    await cache.invalidate_mixes()
     return {"ok": True, "track_count": len(tracks), "tracks": [t.model_dump() for t in tracks]}
 
 
@@ -607,6 +611,7 @@ async def set_tracks(mix_id: str, tracks: List[Track]):
     )
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Mix not found")
+    await cache.invalidate_mixes()
     return {"ok": True}
 
 
@@ -615,6 +620,7 @@ async def set_duration(mix_id: str, duration: float = Form(...)):
     res = await db.mixes.update_one({"id": mix_id}, {"$set": {"duration": float(duration)}})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Mix not found")
+    await cache.invalidate_mixes()
     return {"ok": True}
 
 
@@ -627,6 +633,7 @@ async def public_set_duration(mix_id: str, duration: float = Form(...)):
         raise HTTPException(status_code=404, detail="Mix not found")
     if not doc.get("duration"):
         await db.mixes.update_one({"id": mix_id}, {"$set": {"duration": float(duration)}})
+        await cache.invalidate_mixes()
     return {"ok": True}
 
 
@@ -1112,7 +1119,12 @@ async def rss_feed(request: Request):
         guid = xml_escape(m["id"])
         enc_url = xml_escape(item_url(m))
         cv = xml_escape(cover(m))
-        pub = m.get("created_at") or datetime.now(timezone.utc).isoformat()
+        # RFC-822 date for RSS 2.0 spec compliance
+        try:
+            dt = datetime.fromisoformat(m.get("created_at") or "")
+        except (ValueError, TypeError):
+            dt = datetime.now(timezone.utc)
+        pub = dt.strftime("%a, %d %b %Y %H:%M:%S +0000")
         items_xml.append(f"""
     <item>
       <title>{title}</title>
@@ -1120,7 +1132,7 @@ async def rss_feed(request: Request):
       <itunes:summary>{desc}</itunes:summary>
       <description>{desc}</description>
       <guid isPermaLink="false">{guid}</guid>
-      <pubDate>{xml_escape(pub)}</pubDate>
+      <pubDate>{pub}</pubDate>
       <enclosure url="{enc_url}" type="audio/mpeg" length="0"/>
       <itunes:duration>{length(m)}</itunes:duration>
       <itunes:image href="{cv}"/>
