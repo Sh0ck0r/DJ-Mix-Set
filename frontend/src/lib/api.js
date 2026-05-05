@@ -18,6 +18,7 @@ export const api = {
     incPlay: (id) => client.post(`/mixes/${id}/play`),
     listGenres: () => client.get("/mixes/genres").then((r) => r.data),
     seedDemo: () => client.post("/seed-demo").then((r) => r.data),
+    compatibleMixes: (id, limit = 8) => client.get(`/mixes/${id}/compatible`, { params: { limit } }).then((r) => r.data),
     trackArtwork: (artist, title) =>
         client.get("/tracks/artwork", { params: { artist: artist || "", title: title || "" } }).then((r) => r.data),
 
@@ -83,4 +84,17 @@ export const fmtTime = (s) => {
         return `${String(h).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
     }
     return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+};
+
+// Parse "12:34" or "01:02:03" or "734" (seconds) -> seconds
+export const parseTimeStamp = (raw) => {
+    if (raw == null) return null;
+    const s = String(raw).trim();
+    if (!s) return null;
+    if (/^\d+$/.test(s)) return parseInt(s, 10);
+    const parts = s.split(":").map((p) => parseInt(p, 10));
+    if (parts.some((p) => Number.isNaN(p))) return null;
+    if (parts.length === 2) return parts[0] * 60 + parts[1];
+    if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    return null;
 };

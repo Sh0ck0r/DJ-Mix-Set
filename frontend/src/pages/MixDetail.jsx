@@ -1,17 +1,22 @@
-import { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
-import { api, coverUrl, fmtTime } from "../lib/api";
+import { useEffect, useState, useRef } from "react";
+import { useParams, Link, useSearchParams } from "react-router-dom";
+import { api, coverUrl, fmtTime, parseTimeStamp } from "../lib/api";
 import { usePlayer } from "../contexts/PlayerContext";
 import { CueTrackList } from "../components/CueTrackList";
 import { DjConsole } from "../components/dj/DjConsole";
+import { CompatibleMixesRow } from "../components/CompatibleMixesRow";
 import {
-    Play, Pause, ArrowLeft, Music, Clock, Activity, Headphones, Loader2,
+    Play, Pause, ArrowLeft, Music, Clock, Activity, Headphones, Loader2, Share2, Check,
 } from "lucide-react";
+import { toast } from "sonner";
 
 export const MixDetail = () => {
     const { id } = useParams();
+    const [searchParams] = useSearchParams();
     const [mix, setMix] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [shared, setShared] = useState(false);
+    const deepSeekApplied = useRef(false);
     const player = usePlayer();
     const isCurrent = player.mix?.id === id;
 
@@ -28,6 +33,25 @@ export const MixDetail = () => {
             alive = false;
         };
     }, [id]);
+
+    // Deep-seek from URL ?t=12:34 - applies once after mix + audio is ready.
+    const playable = !!(mix?.audio_filename || mix?.audio_url);
+    useEffect(() => {
+        if (!mix || deepSeekApplied.current) return;
+        const raw = searchParams.get("t");
+        const target = parseTimeStamp(raw);
+        if (target == null || !playable) return;
+        deepSeekApplied.current = true;
+        player.loadMix(mix);
+        const tryThis = (attempts = 0) => {
+            if (player.audioRef.current?.duration) {
+                player.seek(target);
+            } else if (attempts < 30) {
+                setTimeout(() => tryThis(attempts + 1), 200);
+            }
+        };
+        setTimeout(() => tryThis(), 300);
+    }, [mix, playable, searchParams, player]);
 
     if (loading) {
         return (
@@ -48,7 +72,6 @@ export const MixDetail = () => {
     const cover = coverUrl(mix) || "https://images.unsplash.com/photo-1769120061986-a077f35b2569?w=800&q=80";
     const liveArt = isCurrent ? player.trackArtwork : null;
     const displayArt = liveArt || cover;
-    const playable = !!(mix.audio_filename || mix.audio_url);
     const onPlayAll = () => {
         if (!playable) return;
         if (isCurrent) player.toggle();
@@ -63,7 +86,6 @@ export const MixDetail = () => {
         if (!playable) return;
         if (!isCurrent) {
             player.loadMix(mix);
-            // wait for metadata then seek
             const tryThis = () => {
                 if (player.audioRef.current?.duration) {
                     player.seek(t);
@@ -77,6 +99,21 @@ export const MixDetail = () => {
         }
     };
 
+    const onShare = async () => {
+        const t = isCurrent ? Math.floor(player.currentTime) : 0;
+        const url = `${window.location.origin}/mix/${id}${t > 0 ? `?t=${fmtTime(t).replace(":", "%3A")}` : ""}`;
+        try {
+            await navigator.clipboard.writeText(url);
+            setShared(true);
+            toast.success("LINK COPIED", {
+                description: t > 0 ? `Jumps straight to ${fmtTime(t)}` : "Mix link in clipboard",
+            });
+            setTimeout(() => setShared(false), 2000);
+        } catch {
+            toast.error("Couldn't access clipboard");
+        }
+    };
+
     return (
         <div className="max-w-[1600px] mx-auto px-4 md:px-8 py-8 pb-32">
             <Link
@@ -86,7 +123,6 @@ export const MixDetail = () => {
             >
                 <ArrowLeft className="w-3 h-3" /> BACK TO LIBRARY
             </Link>
-
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                 {/* LEFT: cover + meta */}
                 <div className="lg:col-span-4 space-y-4">
@@ -145,6 +181,15 @@ export const MixDetail = () => {
                                 <><Play className="w-4 h-4 fill-current" /> PLAY MIX</>
                             )}
                         </button>
+                        <button
+                            onClick={onShare}
+                            data-testid="share-mix-button"
+                            className="w-full mt-2 bg-transparent text-neon-cyan font-display font-bold tracking-widest uppercase py-2.5 border border-neon-cyan/40 hover:bg-neon-cyan/10 transition-colors flex items-center justify-center gap-2"
+                            title={isCurrent && player.currentTime > 0 ? `Share with timestamp ${fmtTime(Math.floor(player.currentTime))}` : "Share mix link"}
+                        >
+                            {shared ? <Check className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
+                            {shared ? "COPIED" : (isCurrent && player.currentTime > 0 ? `SHARE @ ${fmtTime(Math.floor(player.currentTime))}` : "SHARE LINK")}
+                        </button>
                     </div>
                 </div>
 
@@ -158,6 +203,8 @@ export const MixDetail = () => {
                     />
                     {/* Full tracklist */}
                     <CueTrackList tracks={mix.tracks || []} currentIndex={trackIndex} onJump={onSeek} />
+                    {/* Harmonic recommendations */}
+                    <CompatibleMixesRow mixId={mix.id} />
                 </div>
             </div>
         </div>

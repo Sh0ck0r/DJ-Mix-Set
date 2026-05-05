@@ -1,23 +1,19 @@
 import { useEffect, useState } from "react";
-import { usePlayer } from "../../contexts/PlayerContext";
 
-export const Crossfader = () => {
-    const { currentTrackIndex, mix } = usePlayer();
-    const total = mix?.tracks?.length || 0;
-    // crossfader "sits" in the middle, nudges toward B as we approach next track
-    const [pos, setPos] = useState(0);
-
+export const Crossfader = ({ activeSide = "A" }) => {
+    // Drift toward the active deck. Subtle sine wobble adds life.
+    const target = activeSide === "A" ? -0.7 : 0.7;
+    const [pos, setPos] = useState(target);
     useEffect(() => {
-        if (total === 0) return;
-        // As currentTrackIndex progresses, slowly drift crossfader from -0.2 -> 0.2 then back
         const t = setInterval(() => {
-            setPos(() => {
-                const base = Math.sin(Date.now() / 2000) * 0.15;
-                return base;
+            setPos((p) => {
+                const wobble = Math.sin(Date.now() / 1500) * 0.04;
+                // ease toward target
+                return p + (target + wobble - p) * 0.08;
             });
-        }, 80);
+        }, 60);
         return () => clearInterval(t);
-    }, [total, currentTrackIndex]);
+    }, [target]);
 
     const x = 50 + pos * 50; // 0..100
 

@@ -415,6 +415,59 @@ async def increment_play(mix_id: str):
     return {"ok": True}
 
 
+@api_router.get("/mixes/{mix_id}/compatible", response_model=List[Mix])
+async def compatible_mixes(mix_id: str, limit: int = 8):
+    """Find harmonically + tempo compatible mixes from the library.
+
+    Rules (classic harmonic-mixing):
+    - BPM within +/- 4 of this mix's BPM
+    - Camelot wheel: same key, same number adjacent (+/-1), or relative
+      major<->minor (same number, A<->B). Mode adjacent slots = perfect.
+    """
+    src = await db.mixes.find_one({"id": mix_id}, {"_id": 0})
+    if not src:
+        raise HTTPException(status_code=404, detail="Mix not found")
+    src_bpm = src.get("bpm")
+    src_cam = (src.get("camelot") or "").upper().strip()
+
+    # Build the camelot adjacency set
+    compat_keys: set[str] = set()
+    if src_cam and len(src_cam) >= 2:
+        try:
+            num = int(src_cam[:-1])
+            mode = src_cam[-1]
+            other = "B" if mode == "A" else "A"
+            for n in (num, ((num - 2) % 12) + 1, (num % 12) + 1):
+                compat_keys.add(f"{n}{mode}")
+            compat_keys.add(f"{num}{other}")  # relative major/minor
+        except (ValueError, IndexError):
+            pass
+
+    candidates = await db.mixes.find({"id": {"$ne": mix_id}}, {"_id": 0}).to_list(2000)
+    scored: list[tuple[float, dict]] = []
+    for c in candidates:
+        score = 0.0
+        c_bpm = c.get("bpm")
+        if src_bpm and c_bpm:
+            diff = abs(c_bpm - src_bpm)
+            if diff <= 4:
+                score += 4 - diff
+            elif diff <= 8:
+                score += 0.5
+        c_cam = (c.get("camelot") or "").upper().strip()
+        if compat_keys and c_cam:
+            if c_cam == src_cam:
+                score += 4
+            elif c_cam in compat_keys:
+                score += 3
+        if src.get("genre") and c.get("genre") == src.get("genre"):
+            score += 1
+        if score > 0:
+            scored.append((score, c))
+    scored.sort(key=lambda t: -t[0])
+    return [Mix(**c) for _, c in scored[:limit]]
+
+
 @api_router.post("/admin/mixes", response_model=Mix, dependencies=[Depends(require_admin)])
 async def create_mix(body: MixCreate):
     mix = Mix(**body.model_dump())
