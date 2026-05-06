@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } from "react";
-import { api, streamUrl } from "../lib/api";
+import { api, streamUrl, coverUrl } from "../lib/api";
 
 const PlayerContext = createContext(null);
 
@@ -219,9 +219,7 @@ export const PlayerProvider = ({ children }) => {
         const tr = mix.tracks?.[currentTrackIndex];
         const liveTitle = tr?.title || mix.title;
         const liveArtist = tr?.artist || mix.artist || "MIXDECK";
-        const artworkSrc = trackArtwork || (mix.cover_filename || mix.cover_url || mix.source_cover_path
-            ? (mix.cover_url || `${process.env.REACT_APP_BACKEND_URL || ""}/api/cover/${mix.id}`)
-            : null);
+        const artworkSrc = trackArtwork || coverUrl(mix);
         const artwork = artworkSrc ? [
             { src: artworkSrc, sizes: "512x512", type: "image/jpeg" },
             { src: artworkSrc, sizes: "256x256", type: "image/jpeg" },
