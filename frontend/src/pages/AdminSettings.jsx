@@ -3,6 +3,7 @@ import { Navigate, Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { toast } from "sonner";
 import { Settings as SettingsIcon, ArrowLeft, CheckCircle2, AlertTriangle, Loader2, Server, Zap, Eye, EyeOff, Save } from "lucide-react";
+import { BulkLLMRunner } from "../components/BulkLLMRunner";
 
 const Field = ({ label, hint, children }) => (
     <label className="block">
@@ -237,11 +238,29 @@ export const AdminSettings = () => {
             <section className="border border-[#1A1D2E] bg-[#0a0c14] p-5 mt-6 scanlines relative">
                 <div className="flex items-center gap-2 mb-3">
                     <Zap className="w-4 h-4 text-neon-green" />
+                    <span className="label text-neon-green">// BULK AI OPERATIONS</span>
+                    <span className="ml-auto label text-zinc-500">runs against your local LLM</span>
+                </div>
+                <p className="font-mono text-xs text-zinc-500 leading-relaxed mb-4">
+                    Walk every mix in the library and auto-generate metadata or tags in the background.
+                    Skips mixes that already have results unless FORCE is checked. Concurrency is capped
+                    by <code className="text-neon-cyan">LLM_BULK_CONCURRENCY</code> (default 2) so your LLM doesn't get hammered.
+                </p>
+                <div className="space-y-3">
+                    <BulkLLMRunner kind="tags" />
+                    <BulkLLMRunner kind="descriptions" />
+                </div>
+            </section>
+
+            <section className="border border-[#1A1D2E] bg-[#0a0c14] p-5 mt-6 scanlines relative">
+                <div className="flex items-center gap-2 mb-3">
+                    <Zap className="w-4 h-4 text-neon-green" />
                     <span className="label text-neon-green">// AI FEATURES UNLOCKED</span>
                 </div>
                 <ul className="font-mono text-sm text-zinc-400 leading-relaxed space-y-1">
                     <li>· <span className="text-neon-cyan">Generate Description</span> — auto-writes a 2–4 sentence vibey blurb from a mix's tracklist + BPM/key data. Available on each mix's edit modal.</li>
-                    <li>· More AI features coming: smart playlist builder, mood-tag inference, etc.</li>
+                    <li>· <span className="text-neon-cyan">Generate Tags</span> — infers 4–7 mood/vibe/sub-genre tags from the tracklist. Available on each mix's edit modal.</li>
+                    <li>· Bulk operations above process the whole library in one shot.</li>
                 </ul>
             </section>
         </div>

@@ -37,9 +37,9 @@ export const CompatibleMixesRow = ({ mixId }) => {
             <div className="px-4 py-2 border-b border-[#1A1D2E] flex items-center justify-between bg-black/40">
                 <div className="flex items-center gap-2">
                     <Activity className="w-4 h-4 text-neon-cyan" />
-                    <span className="label text-neon-cyan">// HARMONIC RECOMMENDATIONS</span>
+                    <span className="label text-neon-cyan">// MORE LIKE THIS</span>
                 </div>
-                <span className="label text-zinc-500">SAME ENERGY · ADJACENT KEY</span>
+                <span className="label text-zinc-500">SAME ENERGY · ADJACENT KEY · SHARED TAGS</span>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 p-4">
                 {mixes.map((m) => (
@@ -65,7 +65,7 @@ export const CompatibleMixesRow = ({ mixId }) => {
                             <div className="label truncate" style={{ fontSize: 9 }}>
                                 {m.artist || "—"} · {fmtTime(m.duration || 0)}
                             </div>
-                            <div className="flex items-center gap-1 mt-1">
+                            <div className="flex items-center gap-1 mt-1 flex-wrap">
                                 {m.bpm && (
                                     <span className="label px-1 border border-neon-green/40 text-neon-green" style={{ fontSize: 9 }}>
                                         {m.bpm}
@@ -76,6 +76,15 @@ export const CompatibleMixesRow = ({ mixId }) => {
                                         {m.camelot}
                                     </span>
                                 )}
+                                {(m.tags || []).slice(0, 2).map((t) => (
+                                    <span
+                                        key={t}
+                                        className="label px-1 border border-neon-green/30 text-neon-green/80"
+                                        style={{ fontSize: 9 }}
+                                    >
+                                        #{t}
+                                    </span>
+                                ))}
                             </div>
                         </div>
                     </Link>

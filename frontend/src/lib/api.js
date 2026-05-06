@@ -64,6 +64,10 @@ export const api = {
     testLLM: () => client.post("/admin/settings/test_llm").then((r) => r.data),
     generateDescription: (id) => client.post(`/admin/mixes/${id}/generate_description`).then((r) => r.data),
     generateTags: (id) => client.post(`/admin/mixes/${id}/generate_tags`).then((r) => r.data),
+    autoTagAll: (force = false) => client.post(`/admin/llm/auto_tag_all`, null, { params: { force } }).then((r) => r.data),
+    autoDescribeAll: (force = false) => client.post(`/admin/llm/auto_describe_all`, null, { params: { force } }).then((r) => r.data),
+    bulkLLMStatus: (taskId) => client.get(`/admin/llm/bulk/${taskId}`).then((r) => r.data),
+    listBulkLLMTasks: () => client.get(`/admin/llm/bulk`).then((r) => r.data),
     setDuration: (id, duration) => {
         const fd = new FormData();
         fd.append("duration", duration);
@@ -84,6 +88,9 @@ export const coverUrl = (mix) => {
     if (mix?.cover_filename || mix?.source_cover_path) return `${API}/cover/${mix.id}`;
     return null;
 };
+
+// Embed iframe URL for a mix - drop into <iframe src="..." width="600" height="180">
+export const embedUrl = (mixId) => `${API}/embed/${mixId}`;
 
 // Build the public, OG-rich share URL for a mix (used in social sharing).
 // Always points at the backend's /api/share/{id} so crawlers see the meta tags;

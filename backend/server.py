@@ -60,6 +60,7 @@ from state import (
 import analysis_service
 import scan_service
 import llm_service
+import llm_bulk_service
 import settings_service
 import os
 
@@ -200,6 +201,7 @@ async def compatible_mixes(mix_id: str, limit: int = 8):
         raise HTTPException(status_code=404, detail="Mix not found")
     src_bpm = src.get("bpm")
     src_cam = (src.get("camelot") or "").upper().strip()
+    src_tags: set[str] = set(src.get("tags") or [])
 
     compat_keys: set[str] = set()
     if src_cam and len(src_cam) >= 2:
@@ -232,6 +234,11 @@ async def compatible_mixes(mix_id: str, limit: int = 8):
                 score += 3
         if src.get("genre") and c.get("genre") == src.get("genre"):
             score += 1
+        # Tag overlap: 1.5 points per shared tag (capped at 6)
+        c_tags = set(c.get("tags") or [])
+        if src_tags and c_tags:
+            overlap = src_tags & c_tags
+            score += min(6.0, 1.5 * len(overlap))
         if score > 0:
             scored.append((score, c))
     scored.sort(key=lambda t: -t[0])
@@ -667,6 +674,139 @@ async def generate_mix_tags(mix_id: str):
     await db.mixes.update_one({"id": mix_id}, {"$set": {"tags": tags}})
     await cache.invalidate_mixes()
     return {"tags": tags, "mix_id": mix_id}
+
+
+# ===== Bulk LLM operations: AUTO-TAG ALL / AUTO-DESCRIBE ALL =====
+@api_router.post("/admin/llm/auto_tag_all", dependencies=[Depends(require_admin)])
+async def auto_tag_all(force: bool = False):
+    """Queue tag generation for every mix that doesn't have tags (force=true re-tags all)."""
+    cfg = await settings_service.get_llm_config()
+    if cfg is None:
+        raise HTTPException(status_code=400, detail="LLM is disabled or not configured. Set it in Admin → Settings.")
+    task_id = llm_bulk_service.start_bulk("tags", force=force)
+    return {"task_id": task_id, "kind": "tags", "status": "running", "force": bool(force)}
+
+
+@api_router.post("/admin/llm/auto_describe_all", dependencies=[Depends(require_admin)])
+async def auto_describe_all(force: bool = False):
+    """Queue description generation for every mix that doesn't have one (force=true re-writes all)."""
+    cfg = await settings_service.get_llm_config()
+    if cfg is None:
+        raise HTTPException(status_code=400, detail="LLM is disabled or not configured. Set it in Admin → Settings.")
+    task_id = llm_bulk_service.start_bulk("descriptions", force=force)
+    return {"task_id": task_id, "kind": "descriptions", "status": "running", "force": bool(force)}
+
+
+@api_router.get("/admin/llm/bulk/{task_id}", dependencies=[Depends(require_admin)])
+async def bulk_llm_status(task_id: str):
+    state = llm_bulk_service.get_task(task_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Bulk task not found or expired")
+    return state
+
+
+@api_router.get("/admin/llm/bulk", dependencies=[Depends(require_admin)])
+async def list_bulk_tasks():
+    return {"tasks": llm_bulk_service.list_active()[:30]}
+
+
+# ===== Public OpenGraph share page =====
+@api_router.get("/embed/{mix_id}")
+async def embed_player(mix_id: str, request: Request):
+    """A standalone, framework-free HTML5 audio player for embedding in
+    external sites (blog, Linktree, SoundCloud profile, etc). Designed for
+    a 600x180 iframe but degrades to any size.
+    """
+    doc = await db.mixes.find_one({"id": mix_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Mix not found")
+    base = str(request.base_url).rstrip("/")
+    title = doc.get("title") or "Untitled"
+    artist = doc.get("artist") or "MIXDECK"
+    duration = float(doc.get("duration") or 0)
+    bpm = doc.get("bpm")
+    cam = doc.get("camelot")
+    play_url = f"{base}/mix/{mix_id}"
+    stream_url = f"{base}/api/stream/{mix_id}"
+    if doc.get("cover_url"):
+        cover = doc["cover_url"]
+    elif doc.get("cover_filename") or doc.get("source_cover_path"):
+        cover = f"{base}/api/cover/{mix_id}"
+    else:
+        cover = ""
+    e = xml_escape
+
+    meta_bits = []
+    if bpm:
+        meta_bits.append(f"{bpm} BPM")
+    if cam:
+        meta_bits.append(f"KEY {cam}")
+    if duration:
+        m, s = int(duration // 60), int(duration % 60)
+        meta_bits.append(f"{m}:{s:02d}")
+    meta = " · ".join(meta_bits)
+
+    cover_block = (
+        f'<img src="{e(cover)}" alt="cover">'
+        if cover
+        else '<div class="ph"></div>'
+    )
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{e(title)} · MIXDECK Embed</title>
+<style>
+  *{{box-sizing:border-box;margin:0;padding:0}}
+  html,body{{height:100%;background:#050505;color:#e6e6e6;
+    font-family:ui-monospace,'JetBrains Mono','Fira Code',Menlo,monospace;
+    overflow:hidden;}}
+  .wrap{{display:flex;height:100%;border:1px solid #1A1D2E;background:#0a0c14;
+    background-image:linear-gradient(rgba(0,240,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(0,240,255,.025) 1px,transparent 1px);
+    background-size:24px 24px;}}
+  .art{{width:140px;flex-shrink:0;background:#000;display:flex;align-items:center;justify-content:center;border-right:1px solid #1A1D2E;overflow:hidden;}}
+  .art img{{width:100%;height:100%;object-fit:cover;}}
+  .ph{{width:100%;height:100%;background:linear-gradient(135deg,#0a0c14,#050505);}}
+  .body{{flex:1;padding:14px 16px;display:flex;flex-direction:column;min-width:0;gap:8px;}}
+  .label{{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:#00F0FF}}
+  .title{{font-weight:900;font-size:18px;color:#fff;letter-spacing:-.01em;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}}
+  .artist{{font-size:12px;color:#a1a1aa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+  .meta{{font-size:11px;color:#71717a;letter-spacing:.06em;}}
+  audio{{width:100%;height:34px;outline:none;filter:invert(1) hue-rotate(180deg) saturate(.6);}}
+  .footer{{display:flex;align-items:center;justify-content:space-between;margin-top:auto;}}
+  a.brand{{color:#00F0FF;text-decoration:none;font-size:10px;letter-spacing:.18em;
+    text-transform:uppercase;border:1px solid rgba(0,240,255,.3);padding:4px 8px;
+    transition:all .15s;}}
+  a.brand:hover{{background:rgba(0,240,255,.08);border-color:#00F0FF;text-shadow:0 0 8px #00F0FF;}}
+  .pulse{{display:inline-block;width:6px;height:6px;border-radius:50%;background:#FF003C;margin-right:6px;
+    box-shadow:0 0 8px #FF003C;animation:p 1.4s infinite;}}
+  @keyframes p{{50%{{opacity:.3}}}}
+  @media(max-width:480px){{
+    .wrap{{flex-direction:column}}
+    .art{{width:100%;height:120px;border-right:0;border-bottom:1px solid #1A1D2E;}}
+  }}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="art">{cover_block}</div>
+  <div class="body">
+    <div class="label"><span class="pulse"></span>MIXDECK</div>
+    <div class="title">{e(title)}</div>
+    <div class="artist">{e(artist)}</div>
+    <div class="meta">{e(meta)}</div>
+    <audio controls preload="metadata" src="{e(stream_url)}"></audio>
+    <div class="footer">
+      <a class="brand" href="{e(play_url)}" target="_blank" rel="noopener">OPEN ON MIXDECK ▸</a>
+    </div>
+  </div>
+</div>
+</body>
+</html>"""
+    return Response(content=html, media_type="text/html; charset=utf-8")
 
 
 # ===== Public OpenGraph share page =====

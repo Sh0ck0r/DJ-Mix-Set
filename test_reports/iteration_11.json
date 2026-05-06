@@ -1,0 +1,59 @@
+{
+  "summary": "Iteration 11 — 4 features tested: AUTO-TAG ALL / AUTO-DESCRIBE ALL bulk endpoints + polling, /api/embed/{id} HTML5 audio iframe, EMBED CODE button on mix detail, tag-overlap scoring in /compatible. BACKEND: 16/16 new pytest cases in test_iter11_features.py PASS. Full pytest regression: 113 passed + 8 skipped (Redis only) in 22.81s across 9 test files (121 total, +16 new vs iter10 baseline). All bulk endpoints behave correctly: 401 without token, 400 when llm_enabled=false, returns {task_id, kind, status:'running', force} when enabled, /bulk/{task_id} returns full state with all 16 required fields (errors[] populated with 'Cannot reach LLM' messages), 404 on unknown id, /bulk lists tasks. Skipping verified — force=false skips already-tagged/described mixes (skipped_existing>=1). /api/embed/{id} returns 200 text/html with <audio controls preload='metadata' src='/api/stream/{id}'>, title/artist, BPM meta, OPEN ON MIXDECK link to /mix/{id}, viewport meta; 404 on unknown id. /compatible scoring: HIGH-overlap (3 shared tags) ranks before MED-overlap (1 shared tag) before NONE-overlap (BPM-only); cache invalidates on PATCH tags (verified by adding 3 tags to NONE mix and watching it leapfrog MED). FRONTEND: Found and FIXED 2 CRITICAL runtime crashes on the new EMBED CODE flow: (1) `Code2 is not defined` in MixDetail.jsx — Code2 lucide-react icon used in line 281 but missing from import statement (line 8-10). (2) `embedUrl is not defined` in onCopyEmbed handler — embedUrl helper exported from /lib/api.js but missing from the destructured import at top of MixDetail.jsx (line 3). Both fixes are one-word import additions; applied in-scope. After fixes: EMBED CODE button click shows 'EMBED CODE COPIED' toast (with description 'Drop the <iframe> into any blog/Linktree/site.'), clipboard contains `<iframe src='.../api/embed/{id}' width=\"600\" height=\"180\" ...>`, embed URL fetches 200 text/html. AdminSettings page: BulkLLMRunner components render with all expected data-testids (bulk-runner-tags, bulk-runner-descriptions, bulk-start-{kind}, bulk-force-{kind}, bulk-progress-{kind}). Clicking RUN with force=true on tags kicks off a bulk task that completes within ~5s with 7/7 processed, 0 succeeded, 7 failed. Compatible row on Mix Detail: data-testid='compatible-mixes' renders with header 'MORE LIKE THIS' (changed from prior 'COMPATIBLE'), data-testid='compatible-mix-card' present. NOTE: spec deviation found in BulkLLMRunner failure-state UX (see action_items #1).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "MixDetail.jsx (FIXED by testing agent)",
+        "issue": "ReferenceError: Code2 is not defined. Code2 lucide-react icon used at line 281 (<Code2 className=\"w-3.5 h-3.5\" /> EMBED CODE) but not in the lucide-react import statement at lines 8-10. Whole mix detail page crashed with red error overlay on every load. Fixed by adding Code2 to the lucide-react destructured import.",
+        "selector": "[data-testid='embed-mix-button']",
+        "priority": "CRITICAL (now fixed)"
+      },
+      {
+        "component": "MixDetail.jsx (FIXED by testing agent)",
+        "issue": "ReferenceError: embedUrl is not defined inside onCopyEmbed. embedUrl helper is exported from /app/frontend/src/lib/api.js (line 93) but was missing from the destructured import at line 3 of MixDetail.jsx. Clicking EMBED CODE button threw a runtime error and crashed the page. Fixed by adding `embedUrl` to the import list.",
+        "selector": "[data-testid='embed-mix-button']",
+        "priority": "CRITICAL (now fixed)"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "BulkLLMRunner failure-state UX when LLM is unreachable",
+        "issue": "Spec expects: '7/7 | 0 succeeded | 7 FAILED' with red FAILED badge and toast 'AUTO-TAG ALL FAILED'. Actual behaviour: backend sets state['status']='done' for the unreachable-LLM path because each mix's call raises LLMError (not LLMNotConfigured), so per-mix exceptions are caught and counted as failed but the overall task still completes with status='done'. Then BulkLLMRunner.jsx (line 62) renders the green DONE badge and fires toast.success(`${meta.label} COMPLETE`, ...) — even though every single mix failed. Only LLMNotConfigured (e.g. settings disabled) flips status to 'failed'. The user sees a success toast for an all-failed run.",
+        "affected_selectors": ["[data-testid='bulk-progress-tags']", "[data-testid='bulk-progress-descriptions']"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter11_features.py",
+    "/app/test_reports/pytest/pytest_iter11_features.xml",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Decide spec interpretation for BulkLLMRunner failure UX. Two clean options: (a) Backend: in llm_bulk_service._run_bulk, if state['failed']>0 and state['succeeded']==0, set state['status']='failed' (and state['error']='All N mixes failed — last error: ...'). This makes the frontend's existing FAILED branch fire automatically. OR (b) Frontend: in BulkLLMRunner.jsx around line 62, add an additional check: if status==='done' && task.failed>0 && task.succeeded===0, render the FAILED branch instead of the DONE branch. Option (a) is cleaner and matches the spec wording.",
+    "Review the two import fixes in MixDetail.jsx (lines 3 and 8-10). The Code2 + embedUrl additions are correct but the bug pattern (forgetting to import a symbol you reference) keeps recurring across iterations. Recommend an ESLint rule like `no-undef` enabled at error level, or `eslint-plugin-import/named` so lint catches this before it ships.",
+    "Optional: BulkLLMRunner uses an 8-second auto-clear setTimeout (line 73) — for the FAILED case (currently mis-rendered as DONE) it would be useful to keep the panel sticky until the user dismisses, so they can read the error count. Consider clearing only on success."
+  ],
+  "critical_code_review_comments": [
+    "MixDetail.jsx imports are manual & error-prone. After 2 iterations of broken imports (iter10 had a different MixEditModal crash; iter11 has Code2 + embedUrl missing) it's clear the pattern needs lint enforcement (no-undef + import/named errors).",
+    "llm_bulk_service.py distinction between LLMError (per-mix counted as failed, run continues) and LLMNotConfigured (aborts the run, status=failed) is sound, BUT the resulting status='done' when 100% of mixes errored out is misleading to the UI layer. Consider a derived `outcome` field: 'success'|'partial'|'all_failed'|'aborted' so the frontend doesn't have to compute it from succeeded/failed counters.",
+    "The /api/embed/{id} HTML uses inline f-string formatting with manual xml_escape calls — works but a small Jinja2 template would be safer if more dynamic fields are added. For now (4 fields) it's fine.",
+    "Compatible scoring tag-overlap cap of 6 (1.5*4 = max boost from 4 shared tags) is good — prevents tag spam from dominating BPM/key matching. Documented in code comment on line 237.",
+    "Bulk runner concurrency is set via env var LLM_BULK_CONCURRENCY (default 2) — good defensive default. Worth adding to README/env example."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter11_features.py (NEW — 16 test cases covering bulk endpoints, embed, tag-overlap)",
+    "/app/frontend/src/pages/MixDetail.jsx (CRITICAL FIX: added Code2 to lucide-react import + added embedUrl to api import to fix two runtime crashes on mix detail page)"
+  ],
+  "success_rate": {"backend": "100% (113/113 passed + 8 skipped)", "frontend": "95% — 2 critical import crashes fixed in scope; 1 UX deviation reported (BulkLLMRunner all-failed shows DONE/COMPLETE instead of FAILED)"},
+  "test_credentials": "Admin password: mixdeck2026 (read from /app/memory/test_credentials.md)",
+  "seed_data_creation": "All test fixtures use yield-based cleanup. During run created: 1 tagged mix (TEST_ITER11_TAGGED) for skipping tests, 4 mixes (TEST_ITER11_SRC/HIGH/MED/NONE) for compatible scoring tests — all deleted at fixture teardown. Bulk runs that hit the (unreachable) LLM did not modify any real mix's tags/description (LLM call fails before the DB update runs in _process_one). Settings doc final state: llm_enabled=true, llm_base_url='http://localhost:30000/v1' (same as iter10 final state). Final /api/mixes leftover-TEST_-mixes count: 0.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 4 iteration-11 features pass spec on the backend. The 2 frontend import bugs were one-word fixes applied in scope (Code2 + embedUrl in MixDetail.jsx). The remaining open item is the BulkLLMRunner failure-state UX — when LLM is unreachable, the bulk job currently completes with status='done' + green DONE badge + 'COMPLETE' success toast even though 100% of mixes failed. Pick option (a) [backend status=failed when failed>0 and succeeded=0] or option (b) [frontend treats failed>0 with succeeded=0 as FAILED render path]. test_iter11_features.py is now part of the regression suite — current full backend run is 113 passed + 8 skipped. The 8 skipped tests in test_phase2.py are still the Redis-cache integration tests. AdminSettings page test demonstrated a polling progress UI works end-to-end (~5s for 7 mixes with LLM_BULK_CONCURRENCY=2).",
+  "rca of the issue": "MixDetail.jsx import RCA: Iter11 added a new EMBED CODE button (line 281) using <Code2/> from lucide-react and a click handler onCopyEmbed that calls embedUrl(id) (helper from /lib/api.js). However the developer did not update the two import statements at the top of the file to include the new symbols. Both ReferenceErrors crashed the entire MixDetail component on render (Code2 missing → unconditional crash on every mix detail load) and on click (embedUrl missing → crash only when EMBED CODE was clicked). Reproduction: navigate to any /mix/{id} URL → red 'Code2 is not defined' overlay covers screen. Fix: add `Code2` to the lucide-react named import (line 8-10) and `embedUrl` to the api named import (line 3). Verified: page renders cleanly with no overlay; EMBED CODE click fires toast 'EMBED CODE COPIED' and writes a valid <iframe src='.../api/embed/{id}' width=\"600\" height=\"180\" ...> string to clipboard; iframe URL returns 200 text/html with <audio> element."
+}

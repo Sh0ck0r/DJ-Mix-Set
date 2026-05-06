@@ -1,12 +1,12 @@
 import { useEffect, useState, useRef } from "react";
 import { useParams, Link, useSearchParams } from "react-router-dom";
-import { api, coverUrl, fmtTime, parseTimeStamp, shareUrl, getResumePosition, clearResumePosition } from "../lib/api";
+import { api, coverUrl, fmtTime, parseTimeStamp, shareUrl, embedUrl, getResumePosition, clearResumePosition } from "../lib/api";
 import { usePlayer } from "../contexts/PlayerContext";
 import { CueTrackList } from "../components/CueTrackList";
 import { DjConsole } from "../components/dj/DjConsole";
 import { CompatibleMixesRow } from "../components/CompatibleMixesRow";
 import {
-    Play, Pause, ArrowLeft, Music, Clock, Activity, Headphones, Loader2, Share2, Check, RotateCcw, X,
+    Play, Pause, ArrowLeft, Music, Clock, Activity, Headphones, Loader2, Share2, Check, RotateCcw, X, Code2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -139,6 +139,18 @@ export const MixDetail = () => {
         setResume(null);
     };
 
+    const onCopyEmbed = async () => {
+        const snippet = `<iframe src="${embedUrl(id)}" width="600" height="180" frameborder="0" style="border:1px solid #1A1D2E;background:#050505;" allow="autoplay" loading="lazy" title="${(mix?.title || "MIXDECK Mix").replace(/"/g, "&quot;")}"></iframe>`;
+        try {
+            await navigator.clipboard.writeText(snippet);
+            toast.success("EMBED CODE COPIED", {
+                description: "Drop the <iframe> into any blog/Linktree/site.",
+            });
+        } catch {
+            toast.error("Couldn't access clipboard");
+        }
+    };
+
     return (
         <div className="max-w-[1600px] mx-auto px-4 md:px-8 py-8 pb-32">
             <Link
@@ -259,6 +271,14 @@ export const MixDetail = () => {
                         >
                             {shared ? <Check className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
                             {shared ? "COPIED" : (isCurrent && player.currentTime > 0 ? `SHARE @ ${fmtTime(Math.floor(player.currentTime))}` : "SHARE LINK")}
+                        </button>
+                        <button
+                            onClick={onCopyEmbed}
+                            data-testid="embed-mix-button"
+                            className="w-full mt-2 bg-transparent text-neon-green font-display font-bold tracking-widest uppercase py-2 border border-neon-green/40 hover:bg-neon-green/10 transition-colors flex items-center justify-center gap-2 text-xs"
+                            title="Copy <iframe> embed snippet for blogs/linktrees"
+                        >
+                            <Code2 className="w-3.5 h-3.5" /> EMBED CODE
                         </button>
                     </div>
                 </div>
