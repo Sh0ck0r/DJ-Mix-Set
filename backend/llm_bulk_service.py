@@ -110,6 +110,12 @@ async def _run_bulk(task_id: str, kind: Kind, force: bool) -> None:
         if state.get("aborted"):
             state["status"] = "failed"
             state["error"] = "LLM not configured (check Admin → Settings)"
+        elif state["failed"] > 0 and state["succeeded"] == 0:
+            # Every mix failed - surface this as a top-level failure so the UI
+            # renders the FAILED branch instead of green DONE.
+            state["status"] = "failed"
+            last_err = state["errors"][-1]["error"] if state["errors"] else "all mixes failed"
+            state["error"] = f"All {state['failed']} mix{'es' if state['failed'] != 1 else ''} failed — last error: {last_err}"
         else:
             state["status"] = "done"
         state["finished_at"] = datetime.now(timezone.utc).isoformat()

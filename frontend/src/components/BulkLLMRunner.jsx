@@ -63,14 +63,15 @@ export const BulkLLMRunner = ({ kind, onChanged }) => {
                         toast.success(`${meta.label} COMPLETE`, {
                             description: `${t.succeeded || 0} succeeded · ${t.failed || 0} failed · ${t.skipped_existing || 0} already had ${kind === "tags" ? "tags" : "descriptions"}.`,
                         });
+                        // Auto-clear success panel after 8s
+                        setTimeout(() => setTask(null), 8000);
                     } else {
                         toast.error(`${meta.label} FAILED`, {
                             description: t.error || `${t.succeeded || 0} succeeded before failure`,
                         });
+                        // Keep failed panel sticky until user dismisses (so they can read errors)
                     }
                     onChanged?.();
-                    // auto-clear after 8s so the UI doesn't get cluttered
-                    setTimeout(() => setTask(null), 8000);
                 }
             } catch {
                 clearInterval(pollRef.current);
