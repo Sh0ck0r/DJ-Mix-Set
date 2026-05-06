@@ -153,3 +153,69 @@ async def write_mix_description(mix: dict) -> str:
         f"Write 2-4 sentences only. Plain text, no markdown, no headings."
     )
     return await chat(DESCRIPTION_SYSTEM, user_prompt, temperature=0.85, max_tokens=240)
+
+
+# ===== Mood / Vibe tag generation =====
+TAGS_SYSTEM = (
+    "You are a DJ-mix tagger. Given a tracklist with BPM and Camelot keys, "
+    "you output 4-7 short, lowercase, kebab-case mood/vibe/sub-genre tags that "
+    "describe the mix as a whole. Tags must be specific and useful for filtering "
+    "(e.g. 'peak-time', 'dark', 'uplifting', 'progressive', 'vocal-trance', "
+    "'after-hours', 'morning', 'driving', 'melancholic', 'tech-trance', 'big-room', "
+    "'90s', '00s', 'classics', 'minimal', 'deep'). "
+    "Avoid generic tags like 'music', 'mix', 'dj', or the genre already known. "
+    "Return ONLY the tags as a JSON array of strings. No prose, no markdown, no code fences."
+)
+
+
+async def write_mix_tags(mix: dict) -> list[str]:
+    """Generate mood/vibe/sub-genre tags from a mix's tracklist."""
+    import json as _json
+    import re as _re
+
+    tracks = mix.get("tracks") or []
+    duration = float(mix.get("duration") or 0.0)
+    bpms = [int(t["bpm"]) for t in tracks if t.get("bpm")]
+    bpm_range = f"{min(bpms)}-{max(bpms)} BPM" if bpms else "BPM unknown"
+    genre = mix.get("genre") or ""
+    title = mix.get("title") or "Untitled"
+
+    user_prompt = (
+        f"Tag the following continuous DJ mix:\n\n"
+        f"Title: {title}\n"
+        f"Known genre: {genre or 'unknown'}\n"
+        f"Per-track BPM range: {bpm_range}\n"
+        f"Tracklist:\n{_format_track_list(tracks, duration)}\n\n"
+        'Output a JSON array, e.g. ["uplifting", "peak-time", "vocal-trance"]. '
+        "Only the array, nothing else."
+    )
+    raw = await chat(TAGS_SYSTEM, user_prompt, temperature=0.5, max_tokens=140)
+
+    # Best-effort: strip code fences, find the first JSON array, parse it.
+    text = raw.strip()
+    text = _re.sub(r"^```(?:json)?", "", text).strip()
+    text = _re.sub(r"```$", "", text).strip()
+    m = _re.search(r"\[[^\]]*\]", text, _re.DOTALL)
+    candidate = m.group(0) if m else text
+    try:
+        parsed = _json.loads(candidate)
+    except _json.JSONDecodeError as e:
+        raise LLMError(f"LLM returned non-JSON tags: {raw[:200]}") from e
+    if not isinstance(parsed, list):
+        raise LLMError(f"LLM returned non-array tags: {raw[:200]}")
+    # Normalize: lowercase, kebab-case, strip noise, dedupe, cap at 7
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in parsed:
+        if not isinstance(item, str):
+            continue
+        tag = _re.sub(r"[^a-z0-9\-]+", "-", item.strip().lower()).strip("-")
+        if not tag or tag in seen:
+            continue
+        if len(tag) < 2 or len(tag) > 28:
+            continue
+        seen.add(tag)
+        out.append(tag)
+        if len(out) >= 7:
+            break
+    return out

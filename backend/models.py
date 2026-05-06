@@ -32,6 +32,7 @@ class Mix(BaseModel):
     source_path: Optional[str] = None  # in-place reference (absolute filesystem path)
     source_cover_path: Optional[str] = None  # in-place cover reference
     analysis_status: str = "none"  # none | pending | running | done | failed
+    tags: List[str] = []  # AI-generated mood/vibe/sub-genre tags (lowercase kebab-case)
     tracks: List[Track] = []
     play_count: int = 0
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -55,6 +56,7 @@ class MixUpdate(BaseModel):
     key: Optional[str] = None
     camelot: Optional[str] = None
     description: Optional[str] = None
+    tags: Optional[List[str]] = None
     audio_url: Optional[str] = None
     cover_url: Optional[str] = None
 

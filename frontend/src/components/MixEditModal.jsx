@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { api } from "../lib/api";
 import { toast } from "sonner";
-import { X, Save, Loader2, Edit3, Sparkles } from "lucide-react";
+import { X, Save, Loader2, Edit3, Sparkles, Hash } from "lucide-react";
 
 const Field = ({ label, ...props }) => (
     <label className="block">
@@ -15,10 +15,12 @@ const Field = ({ label, ...props }) => (
 
 export const MixEditModal = ({ mix, open, onClose, onSaved }) => {
     const [form, setForm] = useState({
-        title: "", artist: "", genre: "", bpm: "", key: "", camelot: "", description: "",
+        title: "", artist: "", genre: "", bpm: "", key: "", camelot: "", description: "", tags: [],
     });
+    const [tagInput, setTagInput] = useState("");
     const [saving, setSaving] = useState(false);
     const [generating, setGenerating] = useState(false);
+    const [genTags, setGenTags] = useState(false);
 
     const generateDescription = async () => {
         setGenerating(true);
@@ -36,6 +38,38 @@ export const MixEditModal = ({ mix, open, onClose, onSaved }) => {
         }
     };
 
+    const generateTags = async () => {
+        setGenTags(true);
+        try {
+            const res = await api.generateTags(mix.id);
+            setForm((f) => ({ ...f, tags: res.tags || [] }));
+            toast.success(`${res.tags?.length || 0} TAGS GENERATED`, {
+                description: "Saved automatically. Edit below to refine.",
+            });
+            onSaved?.();
+        } catch (err) {
+            const detail = err.response?.data?.detail || "LLM call failed";
+            toast.error("AI TAG GENERATION FAILED", { description: detail });
+        } finally {
+            setGenTags(false);
+        }
+    };
+
+    const addTag = () => {
+        const t = tagInput.trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
+        if (!t) return;
+        if (form.tags.includes(t)) {
+            setTagInput("");
+            return;
+        }
+        setForm((f) => ({ ...f, tags: [...f.tags, t] }));
+        setTagInput("");
+    };
+
+    const removeTag = (t) => {
+        setForm((f) => ({ ...f, tags: f.tags.filter((x) => x !== t) }));
+    };
+
     useEffect(() => {
         if (mix) {
             setForm({
@@ -46,6 +80,7 @@ export const MixEditModal = ({ mix, open, onClose, onSaved }) => {
                 key: mix.key || "",
                 camelot: mix.camelot || "",
                 description: mix.description || "",
+                tags: Array.isArray(mix.tags) ? mix.tags : [],
             });
         }
     }, [mix]);
@@ -66,6 +101,7 @@ export const MixEditModal = ({ mix, open, onClose, onSaved }) => {
                 key: form.key.trim() || null,
                 camelot: form.camelot.trim().toUpperCase() || null,
                 description: form.description || null,
+                tags: form.tags,
             };
             // Strip undefined; PATCH treats null as explicit clear -> we send null fine
             const cleaned = Object.fromEntries(Object.entries(body).filter(([_, v]) => v !== undefined));
@@ -138,6 +174,55 @@ export const MixEditModal = ({ mix, open, onClose, onSaved }) => {
                             onChange={set("description")}
                             rows={4}
                             data-testid="edit-description"
+                            className="w-full bg-black border border-[#1A1D2E] focus:border-neon-cyan focus:outline-none px-3 py-2 text-white font-mono text-sm"
+                        />
+                    </label>
+                    <label className="block">
+                        <div className="flex items-center justify-between mb-1.5">
+                            <span className="label flex items-center gap-1.5"><Hash className="w-3 h-3" /> TAGS · MOOD · VIBE</span>
+                            <button
+                                type="button"
+                                onClick={generateTags}
+                                disabled={genTags}
+                                data-testid="generate-tags-button"
+                                className="label flex items-center gap-1.5 text-neon-green border border-neon-green/40 px-2 py-1 hover:bg-neon-green/10 transition-colors disabled:opacity-40"
+                                title="Auto-generate mood/vibe/sub-genre tags from the tracklist using your local LLM"
+                            >
+                                {genTags ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                                {genTags ? "TAGGING…" : "AI TAG"}
+                            </button>
+                        </div>
+                        <div
+                            data-testid="edit-tags-list"
+                            className="flex flex-wrap gap-1.5 mb-2 min-h-[1.75rem]"
+                        >
+                            {form.tags.length === 0 && (
+                                <span className="font-mono text-[11px] text-zinc-600 italic">no tags yet · click AI TAG or type below</span>
+                            )}
+                            {form.tags.map((t) => (
+                                <button
+                                    key={t}
+                                    type="button"
+                                    onClick={() => removeTag(t)}
+                                    data-testid={`remove-tag-${t}`}
+                                    className="label px-2 py-1 border border-neon-green/40 text-neon-green bg-neon-green/5 hover:bg-neon-red/15 hover:border-neon-red hover:text-neon-red transition-colors flex items-center gap-1"
+                                >
+                                    {t} <X className="w-2.5 h-2.5" />
+                                </button>
+                            ))}
+                        </div>
+                        <input
+                            value={tagInput}
+                            onChange={(e) => setTagInput(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === ",") {
+                                    e.preventDefault();
+                                    addTag();
+                                }
+                            }}
+                            onBlur={addTag}
+                            placeholder="add a tag (enter to confirm)…"
+                            data-testid="edit-tag-input"
                             className="w-full bg-black border border-[#1A1D2E] focus:border-neon-cyan focus:outline-none px-3 py-2 text-white font-mono text-sm"
                         />
                     </label>

@@ -1,25 +1,46 @@
 import { useEffect, useState, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api, BACKEND_URL } from "../lib/api";
 import { MixCard } from "../components/MixCard";
-import { Disc3, Radio, Loader2, Rss } from "lucide-react";
+import { Disc3, Radio, Loader2, Rss, Hash } from "lucide-react";
 
 export const Library = ({ search = "" }) => {
+    const [searchParams, setSearchParams] = useSearchParams();
     const [mixes, setMixes] = useState([]);
     const [loading, setLoading] = useState(true);
     const [genre, setGenre] = useState("");
+    const [tag, setTag] = useState(searchParams.get("tag") || "");
     const [genres, setGenres] = useState([]);
+    const [tags, setTags] = useState([]);
+
+    // Sync the ?tag= URL param with state so /mix detail tag links pre-filter the library
+    useEffect(() => {
+        const urlTag = searchParams.get("tag") || "";
+        if (urlTag !== tag) setTag(urlTag);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [searchParams]);
+
+    const setTagAndUrl = (newTag) => {
+        setTag(newTag);
+        const next = new URLSearchParams(searchParams);
+        if (newTag) next.set("tag", newTag);
+        else next.delete("tag");
+        setSearchParams(next, { replace: true });
+    };
 
     const load = useCallback(async () => {
         setLoading(true);
         try {
-            const data = await api.listMixes(search, genre);
+            const data = await api.listMixes(search, genre, tag);
             setMixes(data);
             const g = await api.listGenres();
             setGenres(g.genres || []);
+            const t = await api.listTags();
+            setTags(t.tags || []);
         } finally {
             setLoading(false);
         }
-    }, [search, genre]);
+    }, [search, genre, tag]);
 
     useEffect(() => {
         // seed-demo on first visit so user has something to see
@@ -103,6 +124,39 @@ export const Library = ({ search = "" }) => {
                     </div>
                 )}
             </div>
+
+            {/* Tag chip cloud (AI-generated mood/vibe tags) */}
+            {tags.length > 0 && (
+                <div className="mb-6 flex items-start gap-2.5" data-testid="tag-filters">
+                    <Hash className="w-3.5 h-3.5 text-neon-green shrink-0 mt-1.5" />
+                    <div className="flex flex-wrap gap-1.5">
+                        {tag && (
+                            <button
+                                onClick={() => setTagAndUrl("")}
+                                data-testid="tag-clear"
+                                className="label px-2 py-1 border border-neon-red/40 text-neon-red bg-neon-red/5 hover:bg-neon-red/15 transition-colors"
+                            >
+                                CLEAR ×
+                            </button>
+                        )}
+                        {tags.slice(0, 30).map((t) => (
+                            <button
+                                key={t.tag}
+                                onClick={() => setTagAndUrl(t.tag === tag ? "" : t.tag)}
+                                data-testid={`tag-chip-${t.tag}`}
+                                title={`${t.count} mix${t.count === 1 ? "" : "es"}`}
+                                className={`label px-2 py-1 border transition-colors ${
+                                    tag === t.tag
+                                        ? "border-neon-green text-neon-green bg-neon-green/10 shadow-[0_0_10px_rgba(57,255,20,0.3)]"
+                                        : "border-[#1A1D2E] text-zinc-400 hover:text-neon-green hover:border-neon-green/40"
+                                }`}
+                            >
+                                {t.tag} <span className="text-zinc-600 ml-1">{t.count}</span>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {/* Grid */}
             {loading ? (

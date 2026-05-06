@@ -12,11 +12,12 @@ client.interceptors.request.use((config) => {
 });
 
 export const api = {
-    listMixes: (q = "", genre = "") =>
-        client.get("/mixes", { params: { q: q || undefined, genre: genre || undefined } }).then((r) => r.data),
+    listMixes: (q = "", genre = "", tag = "") =>
+        client.get("/mixes", { params: { q: q || undefined, genre: genre || undefined, tag: tag || undefined } }).then((r) => r.data),
     getMix: (id) => client.get(`/mixes/${id}`).then((r) => r.data),
     incPlay: (id) => client.post(`/mixes/${id}/play`),
     listGenres: () => client.get("/mixes/genres").then((r) => r.data),
+    listTags: () => client.get("/mixes/tags").then((r) => r.data),
     seedDemo: () => client.post("/seed-demo").then((r) => r.data),
     compatibleMixes: (id, limit = 8) => client.get(`/mixes/${id}/compatible`, { params: { limit } }).then((r) => r.data),
     waveform: (id) => client.get(`/mixes/${id}/waveform`).then((r) => r.data),
@@ -62,6 +63,7 @@ export const api = {
     updateSettings: (patch) => client.patch("/admin/settings", patch).then((r) => r.data),
     testLLM: () => client.post("/admin/settings/test_llm").then((r) => r.data),
     generateDescription: (id) => client.post(`/admin/mixes/${id}/generate_description`).then((r) => r.data),
+    generateTags: (id) => client.post(`/admin/mixes/${id}/generate_tags`).then((r) => r.data),
     setDuration: (id, duration) => {
         const fd = new FormData();
         fd.append("duration", duration);

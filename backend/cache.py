@@ -120,6 +120,7 @@ class _Cache:
         await self.delete_pattern("mixes:*")
         await self.delete_pattern("mix:*")
         await self.delete_pattern("genres")
+        await self.delete_pattern("tags:*")
         await self.delete_pattern("compatible:*")
         await self.delete("rss:feed")
 

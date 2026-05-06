@@ -113,23 +113,47 @@ async def verify(_: bool = Depends(require_admin)):
 
 
 @api_router.get("/mixes", response_model=List[Mix])
-async def list_mixes(q: Optional[str] = None, genre: Optional[str] = None):
-    cache_key = f"mixes:list:{q or ''}:{genre or ''}"
+async def list_mixes(q: Optional[str] = None, genre: Optional[str] = None, tag: Optional[str] = None):
+    cache_key = f"mixes:list:{q or ''}:{genre or ''}:{tag or ''}"
     cached = await cache.get(cache_key)
     if cached is not None:
         return [Mix(**d) for d in cached]
     query: dict = {}
     if genre:
         query["genre"] = genre
+    if tag:
+        query["tags"] = tag
     if q:
         query["$or"] = [
             {"title": {"$regex": q, "$options": "i"}},
             {"artist": {"$regex": q, "$options": "i"}},
             {"genre": {"$regex": q, "$options": "i"}},
+            {"tags": {"$regex": q, "$options": "i"}},
         ]
     docs = await db.mixes.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
     await cache.set(cache_key, docs, ttl=300)
     return [Mix(**d) for d in docs]
+
+
+@api_router.get("/mixes/tags")
+async def list_tags():
+    """Distinct tag list with counts, sorted by popularity. Used by the library tag-cloud."""
+    cached = await cache.get("tags:list")
+    if cached is not None:
+        return cached
+    pipeline = [
+        {"$unwind": "$tags"},
+        {"$group": {"_id": "$tags", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1, "_id": 1}},
+        {"$limit": 80},
+    ]
+    rows = []
+    async for r in db.mixes.aggregate(pipeline):
+        if r.get("_id"):
+            rows.append({"tag": r["_id"], "count": int(r.get("count") or 0)})
+    payload = {"tags": rows}
+    await cache.set("tags:list", payload, ttl=600)
+    return payload
 
 
 @api_router.get("/mixes/genres")
@@ -614,6 +638,24 @@ async def generate_mix_description(mix_id: str):
     if not description:
         raise HTTPException(status_code=502, detail="LLM returned empty response")
     return {"description": description, "mix_id": mix_id}
+
+
+@api_router.post("/admin/mixes/{mix_id}/generate_tags", dependencies=[Depends(require_admin)])
+async def generate_mix_tags(mix_id: str):
+    doc = await db.mixes.find_one({"id": mix_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Mix not found")
+    try:
+        tags = await llm_service.write_mix_tags(doc)
+    except llm_service.LLMNotConfigured as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except llm_service.LLMError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    if not tags:
+        raise HTTPException(status_code=502, detail="LLM returned no usable tags")
+    await db.mixes.update_one({"id": mix_id}, {"$set": {"tags": tags}})
+    await cache.invalidate_mixes()
+    return {"tags": tags, "mix_id": mix_id}
 
 
 # ===== Public OpenGraph share page =====

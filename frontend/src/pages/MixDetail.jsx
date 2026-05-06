@@ -220,6 +220,20 @@ export const MixDetail = () => {
                                 {mix.description}
                             </p>
                         ) : null}
+                        {mix.tags && mix.tags.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5" data-testid="mix-tags">
+                                {mix.tags.map((t) => (
+                                    <Link
+                                        key={t}
+                                        to={`/?tag=${encodeURIComponent(t)}`}
+                                        data-testid={`mix-tag-${t}`}
+                                        className="label px-2 py-0.5 border border-neon-green/40 text-neon-green bg-neon-green/5 hover:bg-neon-green/15 transition-colors"
+                                    >
+                                        # {t}
+                                    </Link>
+                                ))}
+                            </div>
+                        )}
                         <div className="grid grid-cols-3 gap-2 pt-2">
                             <Stat label="DURATION" value={fmtTime(dur)} icon={<Clock className="w-3 h-3" />} />
                             <Stat label="BPM" value={mix.bpm || "—"} icon={<Activity className="w-3 h-3" />} color="green" />
