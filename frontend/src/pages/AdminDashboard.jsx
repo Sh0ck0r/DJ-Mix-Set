@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, Link } from "react-router-dom";
 import { api, coverUrl, fmtTime } from "../lib/api";
-import { Upload, Plus, Trash2, FileAudio, FileText, Image as ImageIcon, Loader2, CheckCircle2, Radar, Activity, AlertTriangle, Edit3 } from "lucide-react";
+import { Upload, Plus, Trash2, FileAudio, FileText, Image as ImageIcon, Loader2, CheckCircle2, Radar, Activity, AlertTriangle, Edit3, Settings } from "lucide-react";
 import { toast } from "sonner";
 import { BulkScan } from "../components/BulkScan";
 import { MixEditModal } from "../components/MixEditModal";
@@ -88,6 +88,14 @@ export const AdminDashboard = () => {
                     <p className="label mt-1">// MANAGE YOUR DECK</p>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
+                    <Link
+                        to="/admin/settings"
+                        data-testid="link-admin-settings"
+                        className="font-display font-bold tracking-widest uppercase px-3 py-2.5 transition-colors flex items-center gap-2 border bg-transparent text-zinc-400 border-[#1A1D2E] hover:border-neon-cyan hover:text-neon-cyan"
+                        title="App settings (LLM endpoint, model)"
+                    >
+                        <Settings className="w-4 h-4" /> SETTINGS
+                    </Link>
                     <button
                         onClick={() => { setShowScan((v) => !v); if (!showScan) setShowForm(false); }}
                         data-testid="toggle-bulk-scan"

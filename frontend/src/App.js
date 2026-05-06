@@ -9,6 +9,7 @@ import { Library } from "./pages/Library";
 import { MixDetail } from "./pages/MixDetail";
 import { AdminLogin } from "./pages/AdminLogin";
 import { AdminDashboard } from "./pages/AdminDashboard";
+import { AdminSettings } from "./pages/AdminSettings";
 
 function App() {
     const [search, setSearch] = useState("");
@@ -23,6 +24,7 @@ function App() {
                             <Route path="/mix/:id" element={<MixDetail />} />
                             <Route path="/admin/login" element={<AdminLogin />} />
                             <Route path="/admin" element={<AdminDashboard />} />
+                            <Route path="/admin/settings" element={<AdminSettings />} />
                         </Routes>
                     </main>
                     <MiniPlayer />

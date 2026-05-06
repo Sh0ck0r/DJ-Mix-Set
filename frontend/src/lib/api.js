@@ -58,6 +58,10 @@ export const api = {
     analyzeAll: (force = false) => client.post(`/admin/analyze_all`, null, { params: { force } }).then((r) => r.data),
     analyzeMix: (id) => client.post(`/admin/mixes/${id}/analyze`).then((r) => r.data),
     analysisStatus: (id) => client.get(`/mixes/${id}/analysis_status`).then((r) => r.data),
+    getSettings: () => client.get("/admin/settings").then((r) => r.data),
+    updateSettings: (patch) => client.patch("/admin/settings", patch).then((r) => r.data),
+    testLLM: () => client.post("/admin/settings/test_llm").then((r) => r.data),
+    generateDescription: (id) => client.post(`/admin/mixes/${id}/generate_description`).then((r) => r.data),
     setDuration: (id, duration) => {
         const fd = new FormData();
         fd.append("duration", duration);
@@ -77,6 +81,37 @@ export const coverUrl = (mix) => {
     if (mix?.cover_url) return mix.cover_url;
     if (mix?.cover_filename || mix?.source_cover_path) return `${API}/cover/${mix.id}`;
     return null;
+};
+
+// Build the public, OG-rich share URL for a mix (used in social sharing).
+// Always points at the backend's /api/share/{id} so crawlers see the meta tags;
+// real users get auto-redirected to /mix/{id} via meta-refresh.
+export const shareUrl = (mixId, t) => {
+    const base = `${API}/share/${mixId}`;
+    return t > 0 ? `${base}?t=${Math.floor(t)}` : base;
+};
+
+// Resume positions (saved by PlayerContext every 5s while listening).
+const RESUME_KEY = "mixdeck_resume";
+export const getResumePosition = (mixId) => {
+    try {
+        const raw = localStorage.getItem(RESUME_KEY);
+        if (!raw) return null;
+        const map = JSON.parse(raw);
+        const e = map[mixId];
+        return e && e.t > 0 ? { t: e.t, at: e.at } : null;
+    } catch {
+        return null;
+    }
+};
+export const clearResumePosition = (mixId) => {
+    try {
+        const raw = localStorage.getItem(RESUME_KEY);
+        if (!raw) return;
+        const map = JSON.parse(raw);
+        delete map[mixId];
+        localStorage.setItem(RESUME_KEY, JSON.stringify(map));
+    } catch { /* ignore */ }
 };
 
 export const fmtTime = (s) => {

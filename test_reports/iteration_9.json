@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 9 — full coverage of 4 new features (LLM settings UI, AI generate-description, OG share /api/share/{id}, resume-where-you-left-off) plus MediaSession integration. Backend: 15/15 new pytest cases in test_iter9_features.py PASS (settings GET/PATCH partial+empty-key-preserves+clear_api_key+enabled toggle, test_llm returns ok:false with reachable error message, generate_description returns 502 on unreachable LLM and 404 on bad mix id and 401 unauth, /api/share/{id} returns text/html with og:title+og:description+og:image+og:url+twitter:card+twitter:image+meta http-equiv refresh, ?t=120 propagates to og:url and refresh URL, fallback to favicon when no cover). Full pytest regression: 85 passed + 8 skipped (Redis only) in 14.4s across 7 test files. Frontend e2e: link-admin-settings present on AdminDashboard top bar, navigation to /admin/settings works, all 8 required data-testids present (admin-settings-page, llm-settings-section, llm-base-url-input, llm-model-input, llm-api-key-input, llm-enabled-toggle, save-settings-button, test-llm-button), SAVE persists across reload (UI_TEST_MODEL_777 round-trips), TEST CONNECTION shows 'UNREACHABLE — Cannot reach http://localhost:30000/v1/models: All connection attempts failed' in [data-testid=llm-test-result]. AI GENERATE button [data-testid=generate-description-button] present in MixEditModal and clicking it shows 'AI GENERATION FAILED' toast (LLM unreachable as expected). Share button copies https://dj-cue-hub.preview.emergentagent.com/api/share/{mix_id} to clipboard. Resume banner appears after planting localStorage['mixdeck_resume']={mixId:{t:1934,...}}, banner text shows '32:14' formatted time, [data-testid=resume-button] + [data-testid=dismiss-resume] present, dismiss removes banner AND clears the localStorage entry for that mix. MediaSession verified while playing: navigator.mediaSession.metadata.title='Intro', .artist='WF Tester', .album='WF SAMPLE', .playbackState='playing'. Zero console errors, zero page errors.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "MediaSession (lock-screen / Bluetooth / CarPlay)",
+        "issues": [
+          "navigator.mediaSession.metadata.artwork array is empty (length=0) while playing WF SAMPLE which DOES have a cover image visible in the UI. Lock-screen and Bluetooth car displays will show no artwork. Likely cause: PlayerContext is not populating the `artwork` field of MediaMetadata (should be e.g. [{src:`${BASE_URL}/api/cover/${mix.id}`, sizes:'512x512', type:'image/jpeg'}]). Title/artist/album/playbackState are correctly set so this is the only gap."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter9_features.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results_iter9.xml"
+  ],
+  "action_items": [
+    "(LOW priority) PlayerContext.jsx: when setting navigator.mediaSession.metadata, also populate artwork array using the mix's coverUrl (`${REACT_APP_BACKEND_URL}/api/cover/${mix.id}` when cover_filename or source_cover_path exists, else cover_url). Currently artwork=[] so lock-screen/CarPlay/Bluetooth displays show no album art."
+  ],
+  "critical_code_review_comments": [
+    "settings_service.update_settings has a subtle precedence bug-shape on line 59: `if v == '' or v is None and patch.get('clear_api_key') is not True` — Python operator precedence makes this parse as `v == '' or (v is None and patch.get('clear_api_key') is not True)`, which by accident gives the intended behaviour (empty-string preserves; None+no-clear preserves) but is fragile. Suggest rewriting as `if v in ('', None) and patch.get('clear_api_key') is not True: continue` for clarity. Tests already cover the happy paths so no functional regression now.",
+    "llm_service._post raises LLMError on httpx.HTTPError but llm_service.health_check catches httpx.HTTPError directly and returns dict — inconsistent. Acceptable since they have different semantics (test_llm shouldn't 502 the request) but worth a docstring note.",
+    "/api/share/{id} renders inline HTML via f-string. Title/artist/desc are passed through xml_escape so XSS-safe, but cover URL is NOT escaped on line 668 (`{e(cover)}` IS escaped — checked, it is fine). Confirmed safe.",
+    "Frontend: REACT_APP_BACKEND_URL is hard-burned into the share URL clipboard copy — correct. No hardcoded localhost.",
+    "MixEditModal generate-description-button: error path uses toast and surfaces the 502 detail string from the backend — clean UX."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter9_features.py (new — 15 test cases)"
+  ],
+  "success_rate": {"backend": "100% (85/85 + 8 expected skipped)", "frontend": "100% (15/15 UI assertions; 1 minor design note on missing artwork in MediaSession)"},
+  "test_credentials": "Admin password: mixdeck2026 (read from /app/memory/test_credentials.md)",
+  "seed_data_creation": "One TEST_ITER9_MIX created and auto-cleaned in module teardown. App `settings` doc was modified during testing (final state: llm_model='UI_TEST_MODEL_777' or last test value, llm_base_url='http://localhost:30000/v1', llm_enabled=true, llm_api_key cleared). Main agent should be aware that the settings doc was touched — if a clean default state is needed, PATCH /api/admin/settings with desired values.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 4 iteration-9 features pass spec. Only follow-up work (low priority) is populating mediaSession.metadata.artwork in PlayerContext.jsx — currently the artwork array is empty even when a cover exists. The 8-skipped tests in test_phase2.py are Redis-cache integration tests that skip because Redis isn't running in this k8s pod (expected). Settings doc lives in mongo collection `settings` with id='app' — see /app/backend/settings_service.py.",
+  "rca of the issue": "N/A — no blocking issues. The single minor gap (empty mediaSession artwork array) is one localised fix in PlayerContext.jsx where MediaMetadata is constructed."
+}

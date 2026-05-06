@@ -1,12 +1,12 @@
 import { useEffect, useState, useRef } from "react";
 import { useParams, Link, useSearchParams } from "react-router-dom";
-import { api, coverUrl, fmtTime, parseTimeStamp } from "../lib/api";
+import { api, coverUrl, fmtTime, parseTimeStamp, shareUrl, getResumePosition, clearResumePosition } from "../lib/api";
 import { usePlayer } from "../contexts/PlayerContext";
 import { CueTrackList } from "../components/CueTrackList";
 import { DjConsole } from "../components/dj/DjConsole";
 import { CompatibleMixesRow } from "../components/CompatibleMixesRow";
 import {
-    Play, Pause, ArrowLeft, Music, Clock, Activity, Headphones, Loader2, Share2, Check,
+    Play, Pause, ArrowLeft, Music, Clock, Activity, Headphones, Loader2, Share2, Check, RotateCcw, X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -16,6 +16,7 @@ export const MixDetail = () => {
     const [mix, setMix] = useState(null);
     const [loading, setLoading] = useState(true);
     const [shared, setShared] = useState(false);
+    const [resume, setResume] = useState(null);
     const deepSeekApplied = useRef(false);
     const player = usePlayer();
     const isCurrent = player.mix?.id === id;
@@ -27,12 +28,16 @@ export const MixDetail = () => {
             if (alive) {
                 setMix(m);
                 setLoading(false);
+                // Surface resume position only if there's no ?t= param (deep-seek wins)
+                if (!searchParams.get("t")) {
+                    setResume(getResumePosition(id));
+                }
             }
         }).catch(() => setLoading(false));
         return () => {
             alive = false;
         };
-    }, [id]);
+    }, [id, searchParams]);
 
     // Deep-seek from URL ?t=12:34 - applies once after mix + audio is ready.
     const playable = !!(mix?.audio_filename || mix?.audio_url || mix?.source_path);
@@ -101,17 +106,37 @@ export const MixDetail = () => {
 
     const onShare = async () => {
         const t = isCurrent ? Math.floor(player.currentTime) : 0;
-        const url = `${window.location.origin}/mix/${id}${t > 0 ? `?t=${fmtTime(t).replace(":", "%3A")}` : ""}`;
+        const url = shareUrl(id, t);
         try {
             await navigator.clipboard.writeText(url);
             setShared(true);
             toast.success("LINK COPIED", {
-                description: t > 0 ? `Jumps straight to ${fmtTime(t)}` : "Mix link in clipboard",
+                description: t > 0 ? `Jumps straight to ${fmtTime(t)} · rich preview ready` : "Mix link in clipboard · rich preview ready",
             });
             setTimeout(() => setShared(false), 2000);
         } catch {
             toast.error("Couldn't access clipboard");
         }
+    };
+
+    const onResume = () => {
+        if (!resume || !mix) return;
+        player.loadMix(mix);
+        const t = resume.t;
+        setResume(null);
+        const trySeek = (attempts = 0) => {
+            if (player.audioRef.current?.duration) {
+                player.seek(t);
+            } else if (attempts < 30) {
+                setTimeout(() => trySeek(attempts + 1), 200);
+            }
+        };
+        setTimeout(trySeek, 300);
+    };
+
+    const onDismissResume = () => {
+        clearResumePosition(id);
+        setResume(null);
     };
 
     return (
@@ -123,6 +148,37 @@ export const MixDetail = () => {
             >
                 <ArrowLeft className="w-3 h-3" /> BACK TO LIBRARY
             </Link>
+            {resume && playable && !isCurrent && (
+                <div
+                    data-testid="resume-banner"
+                    className="border border-neon-green/40 bg-neon-green/5 p-3 flex items-center gap-3 mb-6 scanlines relative"
+                >
+                    <RotateCcw className="w-4 h-4 text-neon-green shrink-0" />
+                    <div className="flex-1 min-w-0">
+                        <div className="font-display font-bold text-sm text-neon-green tracking-wider">
+                            RESUME WHERE YOU LEFT OFF
+                        </div>
+                        <div className="font-mono text-xs text-zinc-400 mt-0.5">
+                            You stopped at <span className="text-neon-green">{fmtTime(resume.t)}</span> · pick up the vibe?
+                        </div>
+                    </div>
+                    <button
+                        onClick={onResume}
+                        data-testid="resume-button"
+                        className="bg-neon-green text-black font-display font-black tracking-widest uppercase px-3 py-1.5 hover:bg-white transition-colors shadow-[0_0_15px_rgba(57,255,20,0.4)] flex items-center gap-1.5"
+                    >
+                        <Play className="w-3.5 h-3.5 fill-current" /> RESUME
+                    </button>
+                    <button
+                        onClick={onDismissResume}
+                        data-testid="dismiss-resume"
+                        title="Start from the beginning"
+                        className="text-zinc-500 hover:text-neon-red transition-colors"
+                    >
+                        <X className="w-4 h-4" />
+                    </button>
+                </div>
+            )}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                 {/* LEFT: cover + meta */}
                 <div className="lg:col-span-4 space-y-4">

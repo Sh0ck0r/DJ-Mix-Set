@@ -34,3 +34,10 @@ db = client[os.environ["DB_NAME"]]
 # ===== Misc =====
 DISCOGS_TOKEN = os.environ.get("DISCOGS_TOKEN", "").strip()
 LONG_TTL_WF = 86400  # waveform peaks - 24h
+
+# ===== Local LLM (env defaults, runtime values come from settings collection) =====
+# These are seeded into the settings doc on first startup; admin can override
+# them at runtime via Admin → Settings (no restart needed).
+LLM_BASE_URL_DEFAULT = os.environ.get("LLM_BASE_URL", "http://localhost:30000/v1")
+LLM_API_KEY_DEFAULT = os.environ.get("LLM_API_KEY", "")
+LLM_MODEL_DEFAULT = os.environ.get("LLM_MODEL", "default")

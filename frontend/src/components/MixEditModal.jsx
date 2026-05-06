@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { api } from "../lib/api";
 import { toast } from "sonner";
-import { X, Save, Loader2, Edit3 } from "lucide-react";
+import { X, Save, Loader2, Edit3, Sparkles } from "lucide-react";
 
 const Field = ({ label, ...props }) => (
     <label className="block">
@@ -18,6 +18,23 @@ export const MixEditModal = ({ mix, open, onClose, onSaved }) => {
         title: "", artist: "", genre: "", bpm: "", key: "", camelot: "", description: "",
     });
     const [saving, setSaving] = useState(false);
+    const [generating, setGenerating] = useState(false);
+
+    const generateDescription = async () => {
+        setGenerating(true);
+        try {
+            const res = await api.generateDescription(mix.id);
+            setForm((f) => ({ ...f, description: res.description }));
+            toast.success("DESCRIPTION GENERATED", {
+                description: "Review and click SAVE METADATA to keep it.",
+            });
+        } catch (err) {
+            const detail = err.response?.data?.detail || "LLM call failed";
+            toast.error("AI GENERATION FAILED", { description: detail });
+        } finally {
+            setGenerating(false);
+        }
+    };
 
     useEffect(() => {
         if (mix) {
@@ -102,11 +119,24 @@ export const MixEditModal = ({ mix, open, onClose, onSaved }) => {
                         <Field label="CAMELOT" placeholder="8A" value={form.camelot} onChange={set("camelot")} data-testid="edit-camelot" />
                     </div>
                     <label className="block">
-                        <span className="label block mb-1.5">DESCRIPTION</span>
+                        <div className="flex items-center justify-between mb-1.5">
+                            <span className="label">DESCRIPTION</span>
+                            <button
+                                type="button"
+                                onClick={generateDescription}
+                                disabled={generating}
+                                data-testid="generate-description-button"
+                                className="label flex items-center gap-1.5 text-neon-green border border-neon-green/40 px-2 py-1 hover:bg-neon-green/10 transition-colors disabled:opacity-40"
+                                title="Generate a 2-4 sentence description from the tracklist using your local LLM"
+                            >
+                                {generating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                                {generating ? "WRITING…" : "AI GENERATE"}
+                            </button>
+                        </div>
                         <textarea
                             value={form.description}
                             onChange={set("description")}
-                            rows={3}
+                            rows={4}
                             data-testid="edit-description"
                             className="w-full bg-black border border-[#1A1D2E] focus:border-neon-cyan focus:outline-none px-3 py-2 text-white font-mono text-sm"
                         />

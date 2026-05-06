@@ -28,6 +28,7 @@ import jwt
 from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, Form, Depends, Request
 from fastapi.responses import StreamingResponse, FileResponse, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel
 from starlette.middleware.cors import CORSMiddleware
 
 from audio_analysis import compute_waveform_peaks
@@ -58,6 +59,8 @@ from state import (
 )
 import analysis_service
 import scan_service
+import llm_service
+import settings_service
 import os
 
 app = FastAPI(title="MIXDECK API")
@@ -569,6 +572,117 @@ async def analysis_status(mix_id: str):
         "key": doc.get("key"),
         "camelot": doc.get("camelot"),
     }
+
+
+# ===== Admin: App settings (LLM endpoint, model, etc) =====
+class SettingsUpdate(BaseModel):
+    llm_base_url: Optional[str] = None
+    llm_api_key: Optional[str] = None
+    llm_model: Optional[str] = None
+    llm_enabled: Optional[bool] = None
+    clear_api_key: Optional[bool] = None
+
+
+@api_router.get("/admin/settings", dependencies=[Depends(require_admin)])
+async def get_app_settings():
+    return await settings_service.get_public_settings()
+
+
+@api_router.patch("/admin/settings", dependencies=[Depends(require_admin)])
+async def patch_app_settings(body: SettingsUpdate):
+    patch = body.model_dump(exclude_unset=True)
+    return await settings_service.update_settings(patch)
+
+
+@api_router.post("/admin/settings/test_llm", dependencies=[Depends(require_admin)])
+async def test_llm():
+    """Pings the configured LLM endpoint (GET /v1/models) to verify reachability + auth."""
+    return await llm_service.health_check()
+
+
+@api_router.post("/admin/mixes/{mix_id}/generate_description", dependencies=[Depends(require_admin)])
+async def generate_mix_description(mix_id: str):
+    doc = await db.mixes.find_one({"id": mix_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Mix not found")
+    try:
+        description = await llm_service.write_mix_description(doc)
+    except llm_service.LLMNotConfigured as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except llm_service.LLMError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    if not description:
+        raise HTTPException(status_code=502, detail="LLM returned empty response")
+    return {"description": description, "mix_id": mix_id}
+
+
+# ===== Public OpenGraph share page =====
+@api_router.get("/share/{mix_id}")
+async def share_page(mix_id: str, request: Request, t: Optional[str] = None):
+    """Returns a tiny HTML page with OpenGraph + Twitter card tags so links
+    pasted in Discord / iMessage / Twitter / Slack render a rich preview.
+    Real users get auto-redirected to the React player via meta-refresh.
+    """
+    doc = await db.mixes.find_one({"id": mix_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Mix not found")
+    base = str(request.base_url).rstrip("/")
+    title = doc.get("title") or "MIXDECK"
+    artist = doc.get("artist") or ""
+    desc = doc.get("description") or ""
+    if not desc:
+        # Build a fallback description from BPM/key/duration
+        bits = []
+        if doc.get("bpm"):
+            bits.append(f"{doc['bpm']} BPM")
+        if doc.get("camelot"):
+            bits.append(f"Key {doc['camelot']}")
+        if doc.get("duration"):
+            mins = int(doc["duration"] // 60)
+            bits.append(f"{mins} min")
+        if doc.get("genre"):
+            bits.append(doc["genre"])
+        desc = " · ".join(bits) or "Continuous DJ mix"
+    full_title = f"{title}{f' — {artist}' if artist else ''} · MIXDECK"
+
+    if doc.get("cover_url"):
+        cover = doc["cover_url"]
+    elif doc.get("cover_filename") or doc.get("source_cover_path"):
+        cover = f"{base}/api/cover/{mix_id}"
+    else:
+        cover = f"{base}/favicon.png"
+
+    qs = f"?t={t}" if t else ""
+    player_url = f"{base}/mix/{mix_id}{qs}"
+    e = xml_escape  # alias
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>{e(full_title)}</title>
+<meta name="description" content="{e(desc)}">
+<meta property="og:type" content="music.song">
+<meta property="og:site_name" content="MIXDECK">
+<meta property="og:title" content="{e(full_title)}">
+<meta property="og:description" content="{e(desc)}">
+<meta property="og:image" content="{e(cover)}">
+<meta property="og:url" content="{e(player_url)}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{e(full_title)}">
+<meta name="twitter:description" content="{e(desc)}">
+<meta name="twitter:image" content="{e(cover)}">
+<meta http-equiv="refresh" content="0;url={e(player_url)}">
+<style>
+body{{background:#050505;color:#e6e6e6;font-family:monospace;
+display:flex;align-items:center;justify-content:center;height:100vh;margin:0}}
+a{{color:#00F0FF}}
+</style>
+</head>
+<body>
+<p>Loading <a href="{e(player_url)}">{e(title)}</a> …</p>
+</body>
+</html>"""
+    return Response(content=html, media_type="text/html; charset=utf-8")
 
 
 # ===== RSS Podcast feed =====

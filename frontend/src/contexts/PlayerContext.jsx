@@ -212,6 +212,114 @@ export const PlayerProvider = ({ children }) => {
         };
     }, [mix, currentTrackIndex, trackArtwork, nextTrackArtwork]);
 
+    // ===== MediaSession API: lock-screen / Bluetooth / CarPlay metadata + transport =====
+    useEffect(() => {
+        if (typeof navigator === "undefined" || !("mediaSession" in navigator) || !mix) return;
+        const ms = navigator.mediaSession;
+        const tr = mix.tracks?.[currentTrackIndex];
+        const liveTitle = tr?.title || mix.title;
+        const liveArtist = tr?.artist || mix.artist || "MIXDECK";
+        const artworkSrc = trackArtwork || (mix.cover_filename || mix.cover_url || mix.source_cover_path
+            ? (mix.cover_url || `${process.env.REACT_APP_BACKEND_URL || ""}/api/cover/${mix.id}`)
+            : null);
+        const artwork = artworkSrc ? [
+            { src: artworkSrc, sizes: "512x512", type: "image/jpeg" },
+            { src: artworkSrc, sizes: "256x256", type: "image/jpeg" },
+        ] : [];
+        try {
+            ms.metadata = new window.MediaMetadata({
+                title: liveTitle,
+                artist: liveArtist,
+                album: mix.title,
+                artwork,
+            });
+        } catch {
+            /* MediaMetadata not supported in this browser */
+        }
+        const safeSet = (action, handler) => {
+            try { ms.setActionHandler(action, handler); } catch { /* unsupported */ }
+        };
+        safeSet("play", () => { audioRef.current?.play().catch(() => {}); });
+        safeSet("pause", () => { audioRef.current?.pause(); });
+        safeSet("seekbackward", (e) => {
+            const skip = (e && e.seekOffset) || 15;
+            seekRelative(-skip);
+        });
+        safeSet("seekforward", (e) => {
+            const skip = (e && e.seekOffset) || 15;
+            seekRelative(skip);
+        });
+        safeSet("seekto", (e) => {
+            if (e && typeof e.seekTime === "number") seek(e.seekTime);
+        });
+        safeSet("previoustrack", () => {
+            const tracks = mix.tracks || [];
+            if (currentTrackIndex > 0) seek(tracks[currentTrackIndex - 1].start_seconds || 0);
+            else seek(0);
+        });
+        safeSet("nexttrack", () => {
+            const tracks = mix.tracks || [];
+            if (currentTrackIndex >= 0 && currentTrackIndex < tracks.length - 1) {
+                seek(tracks[currentTrackIndex + 1].start_seconds || 0);
+            }
+        });
+        return () => {
+            ["play", "pause", "seekbackward", "seekforward", "seekto", "previoustrack", "nexttrack"].forEach(
+                (a) => { try { ms.setActionHandler(a, null); } catch { /* unsupported */ } }
+            );
+        };
+    }, [mix, currentTrackIndex, trackArtwork, seek, seekRelative]);
+
+    // ===== Update playbackState so OS shows correct play/pause =====
+    useEffect(() => {
+        if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+        navigator.mediaSession.playbackState = playing ? "playing" : "paused";
+    }, [playing]);
+
+    // ===== Update positionState so OS scrubber tracks correctly =====
+    useEffect(() => {
+        if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+        if (!duration || !Number.isFinite(duration)) return;
+        try {
+            navigator.mediaSession.setPositionState({
+                duration,
+                playbackRate: audioRef.current?.playbackRate || 1,
+                position: Math.min(currentTime, duration),
+            });
+        } catch { /* setPositionState not supported in this browser */ }
+    }, [currentTime, duration]);
+
+    // ===== Resume position: save listener position per-mix to localStorage =====
+    // Saved every 5 seconds + on pause/unmount. Cleared when mix completes.
+    useEffect(() => {
+        if (!mix?.id || !duration) return;
+        const STORE_KEY = "mixdeck_resume";
+        const SAVE_THRESHOLD = 15; // only save once we're > 15s into the mix
+        const FORGET_TAIL = 30; // clear if listener is within last 30s (mix finished)
+        const persist = () => {
+            try {
+                const raw = localStorage.getItem(STORE_KEY);
+                const map = raw ? JSON.parse(raw) : {};
+                const t = audioRef.current?.currentTime || 0;
+                if (t < SAVE_THRESHOLD) return;
+                if (duration && t > duration - FORGET_TAIL) {
+                    delete map[mix.id];
+                } else {
+                    map[mix.id] = { t: Math.floor(t), at: Date.now(), title: mix.title };
+                }
+                localStorage.setItem(STORE_KEY, JSON.stringify(map));
+            } catch { /* localStorage quota / parse errors are harmless */ }
+        };
+        const iv = setInterval(persist, 5000);
+        const el = audioRef.current;
+        el?.addEventListener("pause", persist);
+        return () => {
+            clearInterval(iv);
+            persist();
+            el?.removeEventListener("pause", persist);
+        };
+    }, [mix?.id, duration, mix?.title]);
+
     const value = {
         mix,
         playing,
