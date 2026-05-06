@@ -251,7 +251,18 @@ async def create_mix(body: MixCreate):
 
 @api_router.patch("/admin/mixes/{mix_id}", response_model=Mix, dependencies=[Depends(require_admin)])
 async def update_mix(mix_id: str, body: MixUpdate):
-    update = {k: v for k, v in body.model_dump().items() if v is not None}
+    raw = body.model_dump(exclude_unset=True)
+    update: dict = {}
+    for k, v in raw.items():
+        if v is None:
+            continue
+        if k == "tracks":
+            update[k] = [
+                t if isinstance(t, dict) else t.model_dump()
+                for t in v
+            ]
+        else:
+            update[k] = v
     if not update:
         raise HTTPException(status_code=400, detail="No fields to update")
     res = await db.mixes.update_one({"id": mix_id}, {"$set": update})

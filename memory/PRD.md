@@ -66,6 +66,14 @@
 - **Resume where you left off** — every 5s while listening (and on pause/unmount) the player saves `{mixId: {t, at, title}}` to `localStorage["mixdeck_resume"]`. On revisit a green banner shows "RESUME at 32:14" with one-click resume (loads mix + seeks) and a dismiss button. Auto-clears when listener finishes the mix (within 30s of end).
 - **Test results** — testing_agent_v3_fork iter 9: backend 100% (85/85 new + 8 expected skipped Redis tests), frontend 100% (15/15 UI assertions). Zero issues, zero action items after the MediaSession artwork polish fix.
 
+## Implemented (2026-02 — Phase 6: Long-Mix Optimization Pack)
+Tuned for the user's actual production use case (TRANCEHYPE2025 = 9.3 hours / 100+ tracks, deployed live at shock.tube).
+- **Tracklist search/filter** — `CueTrackList` now shows a search box (only when >8 tracks). Filters by title/artist/BPM/Camelot/key. Live result count `12/127`. Clear button. Empty-state message for no matches.
+- **Performance pads pagination** — `PerformancePads` now banks 8 tracks at a time with PREV/NEXT arrows + page-dot indicators + label `BANK 3/13 · TRX 17-24/127`. Auto-flips to the bank containing the currently-playing track. Pads on inactive ranks render disabled/empty so layout stays stable.
+- **AI mood/vibe tags** — new `POST /api/admin/mixes/{id}/generate_tags` endpoint uses the local LLM with a JSON-array prompt + tolerant parser (strips code fences, kebab-cases, dedupes, caps at 7). Tags persist on the mix document. UI: AI TAG button + manual chip input on the edit modal, tag-chip cloud on Library with counts, click-to-filter, ?tag=NAME URL sync, deep-link tag chips on every mix detail page.
+- **Tag CRUD bonus** — `MixUpdate` model now also accepts `tracks: List[Track]`, opening the door to a future inline track editor without breaking the cue-position model.
+- **Test results** — testing_agent_v3_fork iter 10: backend 100% (97/97 + 8 skipped, +12 new test cases), frontend 100% after one critical fix (MixEditModal `tags` field default — testing agent fixed in scope). Zero outstanding issues.
+
 ## Tech / Libraries
 - Backend: fastapi, motor, pydantic, PyJWT, aiofiles, python-multipart
 - Frontend: react-router-dom, axios, sonner, lucide-react, tailwindcss

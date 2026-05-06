@@ -57,6 +57,7 @@ class MixUpdate(BaseModel):
     camelot: Optional[str] = None
     description: Optional[str] = None
     tags: Optional[List[str]] = None
+    tracks: Optional[List[Track]] = None
     audio_url: Optional[str] = None
     cover_url: Optional[str] = None
 
