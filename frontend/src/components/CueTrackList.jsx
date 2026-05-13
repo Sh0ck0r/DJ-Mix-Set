@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
-import { fmtTime } from "../lib/api";
-import { Disc3, Activity, Search, X } from "lucide-react";
+import { fmtTime, api } from "../lib/api";
+import { Disc3, Activity, Search, X, Mic, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
-export const CueTrackList = ({ tracks = [], currentIndex = -1, onJump, dense = false }) => {
+export const CueTrackList = ({ tracks = [], currentIndex = -1, onJump, dense = false, mixId, isAdmin = false }) => {
     const [query, setQuery] = useState("");
+    const [transcribingIdx, setTranscribingIdx] = useState(-1);
 
     const filtered = useMemo(() => {
         const q = query.trim().toLowerCase();
@@ -24,6 +26,23 @@ export const CueTrackList = ({ tracks = [], currentIndex = -1, onJump, dense = f
                 return hay.includes(q);
             });
     }, [tracks, query]);
+
+    const transcribe = async (e, idx, tr) => {
+        e.stopPropagation();
+        if (transcribingIdx !== -1) return;
+        setTranscribingIdx(idx);
+        try {
+            const res = await api.transcribeTrack(mixId, idx);
+            toast.success(`WHISPER · ${res.lines} LINES`, {
+                description: `${res.source.toUpperCase()} · ${tr.artist || ""} — ${tr.title || ""}`.trim(),
+            });
+        } catch (err) {
+            const detail = err.response?.data?.detail || err.message || "Transcription failed";
+            toast.error("WHISPER FAILED", { description: detail });
+        } finally {
+            setTranscribingIdx(-1);
+        }
+    };
 
     if (!tracks.length) {
         return (
@@ -81,12 +100,14 @@ export const CueTrackList = ({ tracks = [], currentIndex = -1, onJump, dense = f
                 ) : (
                     filtered.map(({ tr, i }) => {
                         const active = i === currentIndex;
+                        const isTranscribing = transcribingIdx === i;
+                        const gridCols = isAdmin && mixId ? "grid-cols-[auto_1fr_auto_auto_auto]" : "grid-cols-[auto_1fr_auto_auto]";
                         return (
                             <button
                                 key={i}
                                 data-testid="cue-track-item"
                                 onClick={() => onJump?.(tr.start_seconds)}
-                                className={`w-full text-left px-3 py-2.5 grid grid-cols-[auto_1fr_auto_auto] gap-3 items-center transition-all duration-150 ${
+                                className={`w-full text-left px-3 py-2.5 grid ${gridCols} gap-3 items-center transition-all duration-150 ${
                                     active
                                         ? "bg-neon-cyan/10 border-l-2 border-neon-cyan"
                                         : "border-l-2 border-transparent hover:bg-white/5 hover:border-neon-cyan/40"
@@ -118,6 +139,30 @@ export const CueTrackList = ({ tracks = [], currentIndex = -1, onJump, dense = f
                                 <span className={`font-mono text-xs tabular-nums ${active ? "text-neon-green glow-green" : "text-zinc-500"}`}>
                                     {fmtTime(tr.start_seconds)}
                                 </span>
+                                {isAdmin && mixId && (
+                                    <span
+                                        role="button"
+                                        tabIndex={0}
+                                        onClick={(e) => transcribe(e, i, tr)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter" || e.key === " ") transcribe(e, i, tr);
+                                        }}
+                                        data-testid={`whisper-transcribe-${i}`}
+                                        title={`Re-transcribe with local Whisper (skips last transition seconds)`}
+                                        aria-label="Re-transcribe with Whisper"
+                                        className={`shrink-0 p-1 cursor-pointer transition-colors ${
+                                            isTranscribing
+                                                ? "text-neon-green"
+                                                : "text-zinc-600 hover:text-neon-green"
+                                        } ${transcribingIdx !== -1 && !isTranscribing ? "opacity-30 pointer-events-none" : ""}`}
+                                    >
+                                        {isTranscribing ? (
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                        ) : (
+                                            <Mic className="w-3.5 h-3.5" />
+                                        )}
+                                    </span>
+                                )}
                             </button>
                         );
                     })

@@ -657,6 +657,7 @@ class SettingsUpdate(BaseModel):
     whisper_model: Optional[str] = None
     whisper_enabled: Optional[bool] = None
     whisper_language: Optional[str] = None
+    whisper_transition_trim: Optional[int] = None
     clear_whisper_api_key: Optional[bool] = None
 
 
@@ -712,7 +713,9 @@ async def transcribe_one_track(mix_id: str, track_index: int):
     next_start = (
         float(tracks[track_index + 1]["start_seconds"]) if track_index + 1 < len(tracks) else float(doc.get("duration") or start + 240)
     )
-    duration = max(5.0, min(next_start - start, 480.0))
+    trim = await settings_service.get_whisper_transition_trim()
+    clean_end = max(start, next_start - trim)
+    duration = max(5.0, min(clean_end - start, 480.0))
 
     from lyrics_service import lookup_lyrics
     try:

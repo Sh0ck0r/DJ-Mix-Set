@@ -153,8 +153,9 @@ async def _maybe_transcribe_tracks(mix_id: str, src: str, tracks: list[dict], du
     cfg = await transcription_service.get_whisper_config()
     if cfg is None:
         return  # Whisper disabled - nothing to do
+    trim = int(cfg.get("transition_trim") or 15)
 
-    log.info("Whisper: starting transcription pass for mix %s (%d tracks)", mix_id, len(tracks))
+    log.info("Whisper: starting transcription pass for mix %s (%d tracks, trim=%ds)", mix_id, len(tracks), trim)
     from lyrics_service import _cache_key, parse_lrc  # local import to avoid cycle
     from datetime import datetime, timezone
 
@@ -167,8 +168,11 @@ async def _maybe_transcribe_tracks(mix_id: str, src: str, tracks: list[dict], du
         next_start = (
             float(tracks[i + 1]["start_seconds"]) if i + 1 < len(tracks) else (duration or start + 240)
         )
+        # Subtract the transition zone (last N seconds of each track blend
+        # into the next track in the mix, so Whisper must not transcribe it).
+        clean_end = max(start, next_start - trim)
         # Cap segment at 8 minutes - Whisper handles long audio but cost scales
-        track_duration = max(0.0, min(next_start - start, 480.0))
+        track_duration = max(0.0, min(clean_end - start, 480.0))
         if track_duration < 5:
             continue
         try:

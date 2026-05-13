@@ -292,7 +292,13 @@ export const MixDetail = () => {
                         onSeek={onSeek}
                     />
                     {/* Full tracklist */}
-                    <CueTrackList tracks={mix.tracks || []} currentIndex={trackIndex} onJump={onSeek} />
+                    <CueTrackList
+                        tracks={mix.tracks || []}
+                        currentIndex={trackIndex}
+                        onJump={onSeek}
+                        mixId={mix.id}
+                        isAdmin={!!localStorage.getItem("mixdeck_token")}
+                    />
                     {/* Harmonic recommendations */}
                     <CompatibleMixesRow mixId={mix.id} />
                 </div>

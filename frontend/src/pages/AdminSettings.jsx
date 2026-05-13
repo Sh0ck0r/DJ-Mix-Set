@@ -33,6 +33,7 @@ export const AdminSettings = () => {
         whisper_model: "",
         whisper_enabled: false,
         whisper_language: "",
+        whisper_transition_trim: 15,
     });
     const [showKey, setShowKey] = useState(false);
     const [showWhisperKey, setShowWhisperKey] = useState(false);
@@ -55,6 +56,7 @@ export const AdminSettings = () => {
                 whisper_model: s.whisper_model || "",
                 whisper_enabled: !!s.whisper_enabled,
                 whisper_language: s.whisper_language || "",
+                whisper_transition_trim: typeof s.whisper_transition_trim === "number" ? s.whisper_transition_trim : 15,
             });
         }).catch(() => toast.error("Failed to load settings"));
     }, []);
@@ -92,6 +94,10 @@ export const AdminSettings = () => {
             const patch = { ...form };
             if (!patch.llm_api_key) delete patch.llm_api_key; // empty -> keep existing
             if (!patch.whisper_api_key) delete patch.whisper_api_key;
+            patch.whisper_transition_trim = parseInt(form.whisper_transition_trim, 10);
+            if (!Number.isFinite(patch.whisper_transition_trim) || patch.whisper_transition_trim < 0) {
+                patch.whisper_transition_trim = 15;
+            }
             const updated = await api.updateSettings(patch);
             setSettings(updated);
             setForm((f) => ({ ...f, llm_api_key: "", whisper_api_key: "" }));
@@ -336,6 +342,21 @@ export const AdminSettings = () => {
                         />
                     </Field>
                 </div>
+
+                <Field
+                    label="TRANSITION TRIM (SECONDS)"
+                    hint="Last N seconds of each track are the blend into the next track in your mix — Whisper will NOT transcribe this overlap zone. Default 15s."
+                >
+                    <Input
+                        type="number"
+                        min={0}
+                        max={120}
+                        value={form.whisper_transition_trim}
+                        onChange={set("whisper_transition_trim")}
+                        placeholder="15"
+                        data-testid="whisper-transition-trim-input"
+                    />
+                </Field>
 
                 <Field
                     label="API KEY (OPTIONAL)"

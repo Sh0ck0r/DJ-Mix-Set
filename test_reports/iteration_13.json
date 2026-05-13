@@ -1,0 +1,47 @@
+{
+  "summary": "Iteration 13 testing — Whisper transition trim setting + per-track Whisper transcribe endpoint. Created /app/backend/tests/test_iter13_whisper_trim.py (15 tests). BACKEND: 14/15 PASS, 1 FAIL — discovered a real backend bug where whisper_transition_trim=0 silently coerces to 15 due to `or 15` falsy-check in settings_service.get_public_settings (line 62), get_whisper_config (line 117), and get_whisper_transition_trim (line 127). Setting trim to 0 (admin wants Whisper to transcribe right up to the next cue with no overlap zone) round-trips as 15. All other trim values (5,12,15,30) persist correctly. test_whisper returns ok=false with helpful error (Whisper unreachable on localhost:8000 as expected). transcribe_track endpoint correctly returns 401 (no token), 404 (bad mix), 404 (out-of-range index), 400 (whisper disabled — WhisperNotConfigured), 400 (empty artist+title), and 400 (no readable audio source — short-circuits before hitting unreachable Whisper, NOT 500). Full regression: 137 passed + 8 skipped (Redis) + 2 failed + 3 errors. The 3 errors and 1 secondary failure in test_analysis.py are PRE-EXISTING infra issues (missing /tmp/real_audio.mp3 + cascading pytest.analysis_mix_id) — unrelated to iter13. FRONTEND: full end-to-end verified on production preview URL. AdminSettings /admin/settings renders Whisper section with TRANSITION TRIM input (data-testid=whisper-transition-trim-input) default 15, changed to 22 and saved via save-whisper-settings-button, reloaded page → value persisted as 22 (frontend PATCH+GET roundtrip works). MixDetail /mix/30a6162d-f0bf-4f3b-a668-0217d796c7c2: when logged in as admin, 2 mic icons render (data-testid=whisper-transcribe-0, whisper-transcribe-1). Clicking mic icon #1 did NOT change window.__mixdeckAudio.currentTime (stayed 0) — stopPropagation works correctly. The mic click triggered POST /api/admin/mixes/{id}/transcribe_track/1 which returned 400 (expected: WF Sample mix has empty artist+title tracks AND/OR no audio source). After clearing mixdeck_token, page reload showed 0 mic icons — admin-only visibility correctly enforced via localStorage check.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "PATCH /api/admin/settings + GET /api/admin/settings",
+        "issue": "whisper_transition_trim=0 silently becomes 15. Setting the trim to 0 (admin explicitly wants no overlap-zone trim) round-trips as 15. RCA: settings_service.py line 62 in get_public_settings: `int(s.get('whisper_transition_trim') or 15)` — the `or 15` triggers on falsy 0. Same bug at line 117 (get_whisper_config) and line 127 (get_whisper_transition_trim). Fix: replace `(s.get('whisper_transition_trim') or 15)` with `(s.get('whisper_transition_trim') if s.get('whisper_transition_trim') is not None else 15)` in all three places. Repro: PATCH {whisper_transition_trim: 0} → response shows 15 immediately. This means the trim subtraction in analysis_service._maybe_transcribe_tracks and server.py transcribe_one_track will use 15s even when admin wants 0s.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter13_whisper_trim.py",
+    "/app/test_reports/pytest/pytest_iter13_whisper.xml",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "FIX settings_service.py `or 15` falsy bug in 3 locations (lines 62, 117, 127). Replace `int(s.get('whisper_transition_trim') or 15)` with explicit None check so trim=0 persists correctly. Without this fix, admins cannot disable transition-trim — setting to 0 silently reverts to 15s and Whisper still skips the last 15 seconds of every track.",
+    "OPTIONAL: pre-existing test_analysis.py infra issue — `/tmp/real_audio.mp3` is missing in the test env, causing 3 setup errors + 1 cascading failure (`pytest.analysis_mix_id` undefined). Not from iter13, but worth fixing in test_analysis.py setUp by skipping or generating a fixture audio file."
+  ],
+  "critical_code_review_comments": [
+    "settings_service.py uses the `value or default` pattern in 3 places for whisper_transition_trim — this collapses the legitimate value 0 into the default. Use `value if value is not None else default` instead. This is the primary bug this iteration.",
+    "server.py:712-718 transcribe_one_track derives `clean_end = max(start, next_start - trim)` and then `duration = max(5.0, min(clean_end - start, 480.0))` — if clean_end == start (track shorter than trim), duration is clamped to MIN 5.0, meaning Whisper still transcribes 5s of the overlap zone. Consider returning 400 early if clean_end - start < 5 to avoid wasting Whisper compute on garbage.",
+    "frontend/src/pages/AdminSettings.jsx:97-100 — `if (!Number.isFinite(patch.whisper_transition_trim) || patch.whisper_transition_trim < 0) patch.whisper_transition_trim = 15;` correctly handles invalid input client-side, but allows trim=0 through which gets eaten by the backend bug. Once backend is fixed this client guard is fine.",
+    "Mic icon click handler in CueTrackList.jsx:30-45 — stopPropagation verified working. Disabled state during transcribe blocks other mics with `pointer-events-none + opacity-30`. Good UX. Consider adding a confirm dialog when this becomes more expensive (multi-minute Whisper runs on long tracks).",
+    "transcribe_one_track endpoint has no rate-limit or 'already transcribing' guard. An admin clicking 10 mic icons fast would queue 10 concurrent Whisper requests against the local GPU. Consider an in-memory dedupe map (mix_id, track_index) → asyncio.Lock."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter13_whisper_trim.py (NEW — 15 tests across trim settings round-trip, health check error path, transcribe endpoint auth + 404 + 400 + non-500 invariants)"
+  ],
+  "success_rate": {
+    "backend": "93% (14/15 new iter13 tests pass; 137/140 non-skipped including pre-existing failures)",
+    "frontend": "100% — TRANSITION TRIM input renders + saves + persists via PATCH round-trip; admin mic icons render (2 of 2); mic click does NOT seek (stopPropagation OK); transcribe API call triggered; public visitor sees 0 mic icons (admin-only enforced)"
+  },
+  "test_credentials": "Admin password: mixdeck2026 (from /app/memory/test_credentials.md). JWT via POST /api/auth/login.",
+  "seed_data_creation": "Created and deleted one temporary mix 'TEST_iter13_empty_track' for the empty-track 400 test (cleaned up in finally block). Final state: whisper_transition_trim restored to 15, whisper_enabled state may be left True by the test suite (the autouse fixture restores it but ran on a value snapshotted at start). Recommend E1 verify whisper_enabled is back to its original value after this iteration.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter13 introduced whisper_transition_trim setting + per-track transcribe endpoint. The ONE bug found is a falsy-zero coercion in settings_service.py (`or 15` pattern in 3 locations) that prevents trim=0 from persisting. Frontend wiring is solid — AdminSettings TRANSITION TRIM input + CueTrackList admin-only mic icons + stopPropagation all work. After E1 fixes settings_service, re-run test_iter13_whisper_trim.py to confirm 15/15. The pre-existing 3 errors in test_analysis.py (missing /tmp/real_audio.mp3) are unrelated infra issues from earlier iterations.",
+  "rca of the issue": "settings_service.py:62 `'whisper_transition_trim': int(s.get('whisper_transition_trim') or 15)` — Python truthiness: 0 or 15 == 15. Same pattern at line 117 (get_whisper_config) and 127 (get_whisper_transition_trim). PATCH stores 0 correctly in Mongo (update_settings does `update[k] = v` without falsy filter), but every read collapses 0 → 15. So even if the DB has the user's choice of 0, every consumer (UI, analysis_service, transcribe endpoint) reads 15. Fix in 3 lines: `int(s.get('whisper_transition_trim')) if s.get('whisper_transition_trim') is not None else 15`. Frontend AdminSettings.jsx will then show 0 correctly, and analysis_service._maybe_transcribe_tracks + server.py transcribe_one_track will honor trim=0 (full-track transcription). Reproduction: `curl -X PATCH .../api/admin/settings -H 'Authorization: Bearer $T' -d '{\"whisper_transition_trim\":0}'` → response `{\"whisper_transition_trim\":15,...}`."
+}

@@ -21,13 +21,14 @@ _DEFAULTS = {
     "whisper_model": os.environ.get("WHISPER_MODEL") or "Systran/faster-whisper-large-v3",
     "whisper_enabled": False,
     "whisper_language": os.environ.get("WHISPER_LANGUAGE") or "",
+    "whisper_transition_trim": int(os.environ.get("WHISPER_TRANSITION_TRIM") or 15),
 }
 
 # Fields the admin UI is allowed to write
 WRITABLE = {
     "llm_base_url", "llm_api_key", "llm_model", "llm_enabled",
     "whisper_base_url", "whisper_api_key", "whisper_model",
-    "whisper_enabled", "whisper_language",
+    "whisper_enabled", "whisper_language", "whisper_transition_trim",
 }
 
 # Fields the GET endpoint redacts (never echoed back in plaintext to UI)
@@ -58,6 +59,7 @@ async def get_public_settings() -> dict:
         "whisper_enabled": bool(s.get("whisper_enabled", False)),
         "whisper_language": s.get("whisper_language", ""),
         "whisper_api_key_set": bool(s.get("whisper_api_key")),
+        "whisper_transition_trim": int(s.get("whisper_transition_trim") or 15),
     }
 
 
@@ -112,10 +114,16 @@ async def get_whisper_config() -> Optional[dict]:
         "api_key": s.get("whisper_api_key") or "EMPTY",
         "model": s.get("whisper_model") or "whisper-1",
         "language": s.get("whisper_language") or None,
+        "transition_trim": int(s.get("whisper_transition_trim") or 15),
     }
-    return {
-        "base_url": base,
-        "api_key": s.get("whisper_api_key") or "EMPTY",
-        "model": s.get("whisper_model") or "whisper-1",
-        "language": s.get("whisper_language") or None,
-    }
+
+
+async def get_whisper_transition_trim() -> int:
+    """Seconds at the end of each track that are blended into the next track
+    in the mix. Whisper should NOT transcribe this overlap zone. Defaults 15s.
+    """
+    s = await get_settings()
+    try:
+        return max(0, int(s.get("whisper_transition_trim") or 15))
+    except (TypeError, ValueError):
+        return 15
