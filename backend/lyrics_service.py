@@ -38,32 +38,35 @@ def _cache_key(artist: str, title: str, duration: Optional[float]) -> str:
     return f"{_norm(artist)}|{_norm(title)}|{d // 5}"  # bucket by 5s windows for fuzzy match
 
 
-# Parses one LRC line like "[01:23.45]Lyric text here"
-LRC_LINE_RE = re.compile(r"^\[(\d+):(\d+)(?:[.:](\d+))?\](.*)$")
+# LRC timestamp regex - used by parse_lrc for both finding and stripping prefixes.
+LRC_LINE_RE = re.compile(r"^\[(\d+):(\d+)(?:[.:](\d+))?\](.*)$")  # legacy, kept for callers that import it
 
 
 def parse_lrc(synced: str) -> list[dict]:
-    """Convert LRC-format text to [{time, text}], sorted by time, dedup-safe."""
+    """Convert LRC-format text to [{time, text}], sorted by time.
+
+    Handles:
+    - Single-timestamp lines: `[01:23.45]Lyric here`
+    - Multi-timestamp lines (used by LRCLIB to dedupe repeated choruses):
+      `[00:30.00][01:30.00][02:30.00]Same chorus line` → emits 3 entries
+    - Section labels (`ti:`, `ar:`, etc) are stripped.
+    """
     out: list[dict] = []
     if not synced:
         return out
+    tag_re = re.compile(r"\[(\d+):(\d+)(?:[.:](\d+))?\]")
+    prefix_re = re.compile(r"^(?:\[\d+:\d+(?:[.:]\d+)?\])+")
     for raw in synced.splitlines():
         line = raw.strip()
         if not line:
             continue
-        m = LRC_LINE_RE.match(line)
-        if not m:
-            # Some LRC files have multiple timestamps per line: [00:01.00][00:02.50]Text
-            # Handle that case by finding all timestamp prefixes then taking the trailing text.
-            tags = re.findall(r"\[(\d+):(\d+)(?:[.:](\d+))?\]", line)
-            text = re.sub(r"\[\d+:\d+(?:[.:]\d+)?\]", "", line).strip()
-            for mins, secs, frac in tags:
-                t = int(mins) * 60 + int(secs) + (int(frac.ljust(3, "0")[:3]) / 1000 if frac else 0)
-                out.append({"time": round(t, 3), "text": text})
+        tags = tag_re.findall(line)
+        if not tags:
             continue
-        mins, secs, frac, text = m.groups()
-        t = int(mins) * 60 + int(secs) + (int(frac.ljust(3, "0")[:3]) / 1000 if frac else 0)
-        out.append({"time": round(t, 3), "text": text.strip()})
+        text = prefix_re.sub("", line).strip()
+        for mins, secs, frac in tags:
+            t = int(mins) * 60 + int(secs) + (int(frac.ljust(3, "0")[:3]) / 1000 if frac else 0)
+            out.append({"time": round(t, 3), "text": text})
     # Filter out section labels (commonly [Verse 1], [Chorus] etc that appear as ti/ar/al headers)
     out = [item for item in out if item["text"] and not item["text"].lower().startswith(("ti:", "ar:", "al:", "by:", "length:", "offset:", "re:", "ve:"))]
     out.sort(key=lambda x: x["time"])

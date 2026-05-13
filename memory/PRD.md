@@ -81,6 +81,18 @@ Tuned for the user's actual production use case (TRANCEHYPE2025 = 9.3 hours / 10
 - **Smarter "More Like This"** — `/api/mixes/{id}/compatible` now also scores by **shared tag overlap** (1.5 pts per shared tag, capped at 6) on top of BPM proximity, Camelot adjacency, and matching genre. The CompatibleMixesRow re-headed to "MORE LIKE THIS" + "SAME ENERGY · ADJACENT KEY · SHARED TAGS". Each card now displays up to 2 #tag chips beside BPM/Camelot.
 - **Test results** — testing_agent_v3_fork iter 11: backend 100% (113/113 + 8 skipped, +16 new test cases), frontend 95% with 2 critical import bugs (Code2 icon, embedUrl helper) self-fixed by testing agent in-scope. UX deviation on bulk-failure status fixed by main agent (status='failed' when all mixes fail). Final state: zero outstanding issues, full feature batch shipped.
 
+## Implemented (2026-02 — Phase 8: Synchronized Lyrics HUD)
+- **Lyrics lookup via LRCLIB.net** — new `lyrics_service.py` integrates with the free open lyrics database. `GET /api/tracks/lyrics?artist=X&title=Y&duration=Z` returns `{synced:[{time,text},...], plain, source:'lrclib', found, cached}`. MongoDB `track_lyrics` collection caches both hits and explicit misses (negative-cache) keyed by normalized `artist|title|duration_bucket`. Manual override via `POST /api/admin/tracks/lyrics`.
+- **LRC parser** — handles single-timestamp, multi-timestamp lines (used for repeated choruses: `[00:30][01:30][02:30]Same hook` → 3 entries), filters out section labels (`[Verse 1]`, `[ti:Title]`, etc), preserves bracket-wrapped lyric text like `[indistinct]`. Unified `re.findall` approach catches all timestamp prefixes in one pass.
+- **LyricsDisplay HUD** — new `/app/frontend/src/components/dj/LyricsDisplay.jsx` sits between the dual waveform and the DECK B preview row in `DjConsole`. Renders 3-line stack:
+  - **Previous line** (60% opacity, fades on change)
+  - **Current line** centered, cyan glow, with a BPM-synced pulsing dot before the text
+  - **Next line** (60% opacity)
+  - Smooth `lyricFadeIn` animation on line change, broadcast-style minimalism (no karaoke clutter)
+- **Sync controls** — per-track ±5s offset slider (persisted in `localStorage["mixdeck_lyric_offsets"]` keyed by artist|title), EyeOff toggle to hide the HUD entirely (persisted in `localStorage["mixdeck_lyrics_hidden"]`). Graceful states: `♪ vocals in Ns` countdown before first lyric, `♪ no lyrics available` for unknown tracks, `♪ instrumental` for empty track meta.
+- **Track switching** — when a cue boundary is crossed in the continuous mix (`currentTrackIndex` change), the LyricsDisplay re-fetches via the new artist/title and the 3-line stack re-renders smoothly. Verified end-to-end: planted Yellow/Coldplay @ 0s and Sun & Moon/Above & Beyond @ 60s on the demo mix, seeked through the boundary, lyrics swapped correctly.
+- **Test results** — testing_agent_v3_fork iter 12: backend 94% initially (12/14 new tests; 2 failures = multi-timestamp LRC parser bug correctly identified), then **127/127 + 8 skipped after main agent fixed parse_lrc** with the recommended unified regex approach. Frontend 95% with all UI assertions passing (cue-boundary track switch concern was an environmental artifact — verified working in follow-up Playwright test).
+
 ## Tech / Libraries
 - Backend: fastapi, motor, pydantic, PyJWT, aiofiles, python-multipart
 - Frontend: react-router-dom, axios, sonner, lucide-react, tailwindcss
