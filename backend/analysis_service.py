@@ -153,7 +153,8 @@ async def _maybe_transcribe_tracks(mix_id: str, src: str, tracks: list[dict], du
     cfg = await transcription_service.get_whisper_config()
     if cfg is None:
         return  # Whisper disabled - nothing to do
-    trim = int(cfg.get("transition_trim") or 15)
+    raw_trim = cfg.get("transition_trim")
+    trim = int(raw_trim) if raw_trim is not None else 15
 
     log.info("Whisper: starting transcription pass for mix %s (%d tracks, trim=%ds)", mix_id, len(tracks), trim)
     from lyrics_service import _cache_key, parse_lrc  # local import to avoid cycle

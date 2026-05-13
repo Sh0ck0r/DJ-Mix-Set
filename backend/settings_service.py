@@ -46,6 +46,19 @@ async def get_settings() -> dict:
     return merged
 
 
+def _coerce_trim(raw, default: int = 15) -> int:
+    """Whisper transition trim coerced to int >= 0. Accepts 0 (explicit
+    no-trim) without falling back to the default like `or 15` would.
+    """
+    if raw is None:
+        return default
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return default
+    return max(0, n)
+
+
 async def get_public_settings() -> dict:
     """Settings shape returned to the admin UI (api key replaced with bool)."""
     s = await get_settings()
@@ -59,7 +72,7 @@ async def get_public_settings() -> dict:
         "whisper_enabled": bool(s.get("whisper_enabled", False)),
         "whisper_language": s.get("whisper_language", ""),
         "whisper_api_key_set": bool(s.get("whisper_api_key")),
-        "whisper_transition_trim": int(s.get("whisper_transition_trim") or 15),
+        "whisper_transition_trim": _coerce_trim(s.get("whisper_transition_trim")),
     }
 
 
@@ -114,16 +127,14 @@ async def get_whisper_config() -> Optional[dict]:
         "api_key": s.get("whisper_api_key") or "EMPTY",
         "model": s.get("whisper_model") or "whisper-1",
         "language": s.get("whisper_language") or None,
-        "transition_trim": int(s.get("whisper_transition_trim") or 15),
+        "transition_trim": _coerce_trim(s.get("whisper_transition_trim")),
     }
 
 
 async def get_whisper_transition_trim() -> int:
     """Seconds at the end of each track that are blended into the next track
     in the mix. Whisper should NOT transcribe this overlap zone. Defaults 15s.
+    Accepts 0 (explicit no-trim) — does not coerce 0 → 15.
     """
     s = await get_settings()
-    try:
-        return max(0, int(s.get("whisper_transition_trim") or 15))
-    except (TypeError, ValueError):
-        return 15
+    return _coerce_trim(s.get("whisper_transition_trim"))

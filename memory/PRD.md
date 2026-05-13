@@ -93,7 +93,16 @@ Tuned for the user's actual production use case (TRANCEHYPE2025 = 9.3 hours / 10
 - **Track switching** — when a cue boundary is crossed in the continuous mix (`currentTrackIndex` change), the LyricsDisplay re-fetches via the new artist/title and the 3-line stack re-renders smoothly. Verified end-to-end: planted Yellow/Coldplay @ 0s and Sun & Moon/Above & Beyond @ 60s on the demo mix, seeked through the boundary, lyrics swapped correctly.
 - **Test results** — testing_agent_v3_fork iter 12: backend 94% initially (12/14 new tests; 2 failures = multi-timestamp LRC parser bug correctly identified), then **127/127 + 8 skipped after main agent fixed parse_lrc** with the recommended unified regex approach. Frontend 95% with all UI assertions passing (cue-boundary track switch concern was an environmental artifact — verified working in follow-up Playwright test).
 
-## Tech / Libraries
+## Implemented (2026-05 — Phase 9: Local Whisper STT + Configurable Transition Trim)
+- **Local Whisper transcription service** — new `transcription_service.py` speaks any OpenAI-compatible `/v1/audio/transcriptions` endpoint (Speaches, faster-whisper-server, whisper-asr-webservice, vLLM with Whisper). Extracts each track segment via ffmpeg (16kHz mono WAV), POSTs with `verbose_json` + word-level timestamps, and groups words into LRC-style lines.
+- **Smart-merge force_align** — when LRCLIB has the track, merges LRCLIB's human-curated *text* with Whisper's actual *timing* (word-level matching with proportional fallback). Result is human-accurate lyrics that follow the actual recording's pitch-bending / tempo.
+- **Auto Whisper during analysis** — `analysis_service.py::_maybe_transcribe_tracks` runs when admin enables Whisper. Per-track failures are isolated; one bad segment doesn't abort the rest.
+- **Configurable transition trim** — new `whisper_transition_trim` setting (default 15s). User's mix transitions are blended into the next track in the cue sheet, so Whisper now stops at `next_track.start_seconds − trim` to avoid transcribing incoming-track lyrics during the blend. Accepts 0 (no-trim, explicit, doesn't coerce to default).
+- **Per-track manual trigger** — `POST /api/admin/mixes/{id}/transcribe_track/{idx}`. Frontend renders an admin-only mic icon (`data-testid=whisper-transcribe-N`) at the right of every row in the Cue Tracklist on `/mix/:id`. Click dispatches without changing seek position (stopPropagation), shows a green spinner during the call, and toasts the result.
+- **AdminSettings UI** — new Whisper section with enable toggle, base URL, model, language (auto-detect when blank), TRANSITION TRIM input, masked API key, and a TEST CONNECTION button that pings `/v1/models`.
+- **Test results** — iteration_13: 15 new Whisper trim test cases (0/5/12/15/30 + invalid types + auth/error paths) all pass. Fixed the original `or 15` falsy bug where trim=0 silently coerced to 15. Full backend regression 133 passed + 8 skipped Redis. Frontend e2e verified: AdminSettings PATCH→GET roundtrip, mic icon visibility (admin only, public hidden), click triggers transcribe endpoint without seek jump.
+
+
 - Backend: fastapi, motor, pydantic, PyJWT, aiofiles, python-multipart
 - Frontend: react-router-dom, axios, sonner, lucide-react, tailwindcss
 - Fonts: Unbounded (display), JetBrains Mono (body), Chivo (UI)
