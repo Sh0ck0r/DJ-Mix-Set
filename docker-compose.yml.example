@@ -1,0 +1,52 @@
+# Sample docker-compose for self-hosting MIXDECK.
+# Copy backend/.env.example to backend/.env and frontend/.env.example to
+# frontend/.env first. Mount your DJ-mix directory under /srv/dj-mixes
+# (or wherever - it just has to match the path you scan from in the admin UI).
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    ports:
+      - "27017:27017"
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "60", "1"]
+    volumes:
+      - redis-data:/data
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file: ./backend/.env
+    environment:
+      MONGO_URL: "mongodb://mongo:27017"
+      REDIS_URL: "redis://redis:6379/0"
+    depends_on:
+      - mongo
+      - redis
+    ports:
+      - "8001:8001"
+    volumes:
+      # READ-ONLY mount of your DJ-mix directory - MIXDECK never writes here
+      - /srv/dj-mixes:/srv/dj-mixes:ro
+      # Persistent storage for waveforms, uploaded covers, cue caches
+      - mixdeck-storage:/app/storage
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    env_file: ./frontend/.env
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+
+volumes:
+  mongo-data:
+  redis-data:
+  mixdeck-storage:
