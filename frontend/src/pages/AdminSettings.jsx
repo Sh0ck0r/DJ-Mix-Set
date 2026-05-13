@@ -4,6 +4,7 @@ import { api } from "../lib/api";
 import { toast } from "sonner";
 import { Settings as SettingsIcon, ArrowLeft, CheckCircle2, AlertTriangle, Loader2, Server, Zap, Eye, EyeOff, Save } from "lucide-react";
 import { BulkLLMRunner } from "../components/BulkLLMRunner";
+import { BulkWhisperRunner } from "../components/BulkWhisperRunner";
 
 const Field = ({ label, hint, children }) => (
     <label className="block">
@@ -435,6 +436,11 @@ export const AdminSettings = () => {
                         )}
                     </div>
                 )}
+
+                {/* Bulk Whisper runner */}
+                <div className="pt-2">
+                    <BulkWhisperRunner />
+                </div>
             </section>
 
             <section className="border border-[#1A1D2E] bg-[#0a0c14] p-5 mt-6 scanlines relative">

@@ -74,6 +74,9 @@ export const api = {
     autoDescribeAll: (force = false) => client.post(`/admin/llm/auto_describe_all`, null, { params: { force } }).then((r) => r.data),
     bulkLLMStatus: (taskId) => client.get(`/admin/llm/bulk/${taskId}`).then((r) => r.data),
     listBulkLLMTasks: () => client.get(`/admin/llm/bulk`).then((r) => r.data),
+    transcribeAll: (force = false) => client.post(`/admin/whisper/transcribe_all`, null, { params: { force } }).then((r) => r.data),
+    bulkWhisperStatus: (taskId) => client.get(`/admin/whisper/bulk/${taskId}`).then((r) => r.data),
+    listBulkWhisperTasks: () => client.get(`/admin/whisper/bulk`).then((r) => r.data),
     setDuration: (id, duration) => {
         const fd = new FormData();
         fd.append("duration", duration);

@@ -62,6 +62,7 @@ import analysis_service
 import scan_service
 import llm_service
 import llm_bulk_service
+import transcription_bulk_service
 import settings_service
 import transcription_service
 import os
@@ -824,6 +825,32 @@ async def bulk_llm_status(task_id: str):
 @api_router.get("/admin/llm/bulk", dependencies=[Depends(require_admin)])
 async def list_bulk_tasks():
     return {"tasks": llm_bulk_service.list_active()[:30]}
+
+
+# ===== Bulk Whisper transcription =====
+@api_router.post("/admin/whisper/transcribe_all", dependencies=[Depends(require_admin)])
+async def whisper_transcribe_all(force: bool = False):
+    """Queue Whisper transcription for every track in every mix in the library.
+    Skips tracks that already have a Whisper-sourced lyric entry unless force=true.
+    """
+    cfg = await settings_service.get_whisper_config()
+    if cfg is None:
+        raise HTTPException(status_code=400, detail="Whisper is disabled or not configured. Set it in Admin → Settings.")
+    task_id = transcription_bulk_service.start_bulk(force=force)
+    return {"task_id": task_id, "kind": "whisper", "status": "running", "force": bool(force)}
+
+
+@api_router.get("/admin/whisper/bulk/{task_id}", dependencies=[Depends(require_admin)])
+async def bulk_whisper_status(task_id: str):
+    state = transcription_bulk_service.get_task(task_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Bulk task not found or expired")
+    return state
+
+
+@api_router.get("/admin/whisper/bulk", dependencies=[Depends(require_admin)])
+async def list_bulk_whisper_tasks():
+    return {"tasks": transcription_bulk_service.list_active()[:30]}
 
 
 # ===== Public OpenGraph share page =====
