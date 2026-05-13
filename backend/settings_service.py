@@ -16,13 +16,22 @@ _DEFAULTS = {
     "llm_api_key": os.environ.get("LLM_API_KEY", ""),
     "llm_model": os.environ.get("LLM_MODEL", "default"),
     "llm_enabled": True,
+    "whisper_base_url": os.environ.get("WHISPER_BASE_URL") or "http://localhost:8000/v1",
+    "whisper_api_key": os.environ.get("WHISPER_API_KEY") or "",
+    "whisper_model": os.environ.get("WHISPER_MODEL") or "Systran/faster-whisper-large-v3",
+    "whisper_enabled": False,
+    "whisper_language": os.environ.get("WHISPER_LANGUAGE") or "",
 }
 
 # Fields the admin UI is allowed to write
-WRITABLE = {"llm_base_url", "llm_api_key", "llm_model", "llm_enabled"}
+WRITABLE = {
+    "llm_base_url", "llm_api_key", "llm_model", "llm_enabled",
+    "whisper_base_url", "whisper_api_key", "whisper_model",
+    "whisper_enabled", "whisper_language",
+}
 
 # Fields the GET endpoint redacts (never echoed back in plaintext to UI)
-SECRET_FIELDS = {"llm_api_key"}
+SECRET_FIELDS = {"llm_api_key", "whisper_api_key"}
 
 
 async def get_settings() -> dict:
@@ -44,6 +53,11 @@ async def get_public_settings() -> dict:
         "llm_model": s.get("llm_model", ""),
         "llm_enabled": bool(s.get("llm_enabled", True)),
         "llm_api_key_set": bool(s.get("llm_api_key")),
+        "whisper_base_url": s.get("whisper_base_url", ""),
+        "whisper_model": s.get("whisper_model", ""),
+        "whisper_enabled": bool(s.get("whisper_enabled", False)),
+        "whisper_language": s.get("whisper_language", ""),
+        "whisper_api_key_set": bool(s.get("whisper_api_key")),
     }
 
 
@@ -54,13 +68,15 @@ async def update_settings(patch: dict) -> dict:
     for k, v in patch.items():
         if k not in WRITABLE:
             continue
-        if k == "llm_api_key":
-            # Empty -> keep existing; explicit None -> clear; anything else -> set
-            if v == "" or v is None and patch.get("clear_api_key") is not True:
+        if k in SECRET_FIELDS:
+            # Empty -> keep existing; explicit clear handled below
+            if v == "" or v is None:
                 continue
         update[k] = v
     if patch.get("clear_api_key") is True:
         update["llm_api_key"] = ""
+    if patch.get("clear_whisper_api_key") is True:
+        update["whisper_api_key"] = ""
     if not update:
         return await get_public_settings()
     merged = {**current, **update}
@@ -80,4 +96,26 @@ async def get_llm_config() -> Optional[dict]:
         "base_url": base,
         "api_key": s.get("llm_api_key") or "EMPTY",
         "model": s.get("llm_model") or "default",
+    }
+
+
+async def get_whisper_config() -> Optional[dict]:
+    """Return {base_url, api_key, model, language} for use by transcription_service. None if disabled."""
+    s = await get_settings()
+    if not s.get("whisper_enabled"):
+        return None
+    base = (s.get("whisper_base_url") or "").rstrip("/")
+    if not base:
+        return None
+    return {
+        "base_url": base,
+        "api_key": s.get("whisper_api_key") or "EMPTY",
+        "model": s.get("whisper_model") or "whisper-1",
+        "language": s.get("whisper_language") or None,
+    }
+    return {
+        "base_url": base,
+        "api_key": s.get("whisper_api_key") or "EMPTY",
+        "model": s.get("whisper_model") or "whisper-1",
+        "language": s.get("whisper_language") or None,
     }

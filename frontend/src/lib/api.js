@@ -65,6 +65,9 @@ export const api = {
     getSettings: () => client.get("/admin/settings").then((r) => r.data),
     updateSettings: (patch) => client.patch("/admin/settings", patch).then((r) => r.data),
     testLLM: () => client.post("/admin/settings/test_llm").then((r) => r.data),
+    testWhisper: () => client.post("/admin/settings/test_whisper").then((r) => r.data),
+    transcribeTrack: (mixId, trackIndex) =>
+        client.post(`/admin/mixes/${mixId}/transcribe_track/${trackIndex}`, null, { timeout: 600000 }).then((r) => r.data),
     generateDescription: (id) => client.post(`/admin/mixes/${id}/generate_description`).then((r) => r.data),
     generateTags: (id) => client.post(`/admin/mixes/${id}/generate_tags`).then((r) => r.data),
     autoTagAll: (force = false) => client.post(`/admin/llm/auto_tag_all`, null, { params: { force } }).then((r) => r.data),

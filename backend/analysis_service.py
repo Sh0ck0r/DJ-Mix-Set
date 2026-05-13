@@ -13,6 +13,8 @@ from typing import Optional
 from audio_analysis import read_audio_info, analyze_segment
 from cache import cache
 from state import db, AUDIO_DIR
+from lyrics_service import lookup_lyrics
+import transcription_service
 
 _analysis_locks: dict[str, asyncio.Task] = {}
 _ANALYSIS_CONCURRENCY = int(os.environ.get("ANALYSIS_CONCURRENCY", "2"))
@@ -121,6 +123,11 @@ async def _run_mix_analysis_inner(mix_id: str) -> None:
             {"$set": {**updates, "tracks": analyzed, "analysis_status": "done"}},
         )
         await cache.invalidate_mixes()
+
+        # 3) Optional Whisper transcription per track (smart-merged with LRCLIB)
+        # Runs only if the admin enabled it in Settings. Failures are isolated
+        # per-track so one bad audio segment doesn't fail the whole analyze run.
+        await _maybe_transcribe_tracks(mix_id, src, analyzed, duration)
     except Exception as e:
         log.exception("Analysis failed for %s: %s", mix_id, e)
         await db.mixes.update_one({"id": mix_id}, {"$set": {"analysis_status": "failed"}})
@@ -134,3 +141,74 @@ def schedule_analysis(mix_id: str) -> None:
         return
     task = asyncio.create_task(_run_mix_analysis(mix_id))
     _analysis_locks[mix_id] = task
+
+
+async def _maybe_transcribe_tracks(mix_id: str, src: str, tracks: list[dict], duration: float) -> None:
+    """Run Whisper per-track if enabled. Force-aligns with LRCLIB when available.
+
+    Failures are caught per-track so one bad segment doesn't take down the
+    whole pass. Persists results to the `track_lyrics` collection keyed by
+    artist|title so they're shared across all mixes containing the same track.
+    """
+    cfg = await transcription_service.get_whisper_config()
+    if cfg is None:
+        return  # Whisper disabled - nothing to do
+
+    log.info("Whisper: starting transcription pass for mix %s (%d tracks)", mix_id, len(tracks))
+    from lyrics_service import _cache_key, parse_lrc  # local import to avoid cycle
+    from datetime import datetime, timezone
+
+    for i, t in enumerate(tracks):
+        artist = (t.get("artist") or "").strip()
+        title = (t.get("title") or "").strip()
+        if not (artist or title):
+            continue
+        start = float(t.get("start_seconds") or 0.0)
+        next_start = (
+            float(tracks[i + 1]["start_seconds"]) if i + 1 < len(tracks) else (duration or start + 240)
+        )
+        # Cap segment at 8 minutes - Whisper handles long audio but cost scales
+        track_duration = max(0.0, min(next_start - start, 480.0))
+        if track_duration < 5:
+            continue
+        try:
+            # First, see if LRCLIB has it - we'll smart-merge if so
+            existing = await lookup_lyrics(artist, title, track_duration)
+            lrclib_synced = existing.get("synced") or []
+            lines, words = await transcription_service.transcribe_with_word_timing(
+                src, start, track_duration
+            )
+            if not lines:
+                log.info("Whisper: no transcription for %s - %s", artist, title)
+                continue
+            if lrclib_synced:
+                # Smart-merge: LRCLIB text + Whisper timing
+                merged = transcription_service.force_align(lrclib_synced, words)
+                final_synced = merged
+                source = "whisper-aligned"
+            else:
+                final_synced = lines
+                source = "whisper"
+            key = _cache_key(artist, title, track_duration)
+            await db.track_lyrics.update_one(
+                {"key": key},
+                {"$set": {
+                    "key": key,
+                    "artist": artist,
+                    "title": title,
+                    "duration": int(round(track_duration)),
+                    "synced": final_synced,
+                    "plain": "\n".join(line["text"] for line in final_synced),
+                    "source": source,
+                    "checked_at": datetime.now(timezone.utc).isoformat(),
+                }},
+                upsert=True,
+            )
+            log.info("Whisper: %s '%s - %s' (%d lines)", source, artist, title, len(final_synced))
+        except (transcription_service.WhisperNotConfigured, transcription_service.WhisperError) as e:
+            log.warning("Whisper failed for %s - %s: %s", artist, title, e)
+            # Don't abort - keep going for the other tracks
+            continue
+        except Exception as e:  # noqa: BLE001
+            log.exception("Unexpected error transcribing %s - %s: %s", artist, title, e)
+            continue

@@ -63,6 +63,7 @@ import scan_service
 import llm_service
 import llm_bulk_service
 import settings_service
+import transcription_service
 import os
 
 app = FastAPI(title="MIXDECK API")
@@ -651,6 +652,12 @@ class SettingsUpdate(BaseModel):
     llm_model: Optional[str] = None
     llm_enabled: Optional[bool] = None
     clear_api_key: Optional[bool] = None
+    whisper_base_url: Optional[str] = None
+    whisper_api_key: Optional[str] = None
+    whisper_model: Optional[str] = None
+    whisper_enabled: Optional[bool] = None
+    whisper_language: Optional[str] = None
+    clear_whisper_api_key: Optional[bool] = None
 
 
 @api_router.get("/admin/settings", dependencies=[Depends(require_admin)])
@@ -668,6 +675,84 @@ async def patch_app_settings(body: SettingsUpdate):
 async def test_llm():
     """Pings the configured LLM endpoint (GET /v1/models) to verify reachability + auth."""
     return await llm_service.health_check()
+
+
+@api_router.post("/admin/settings/test_whisper", dependencies=[Depends(require_admin)])
+async def test_whisper():
+    """Pings the configured Whisper endpoint to verify reachability + auth."""
+    return await transcription_service.health_check()
+
+
+# ===== Per-track Whisper transcription =====
+@api_router.post("/admin/mixes/{mix_id}/transcribe_track/{track_index}", dependencies=[Depends(require_admin)])
+async def transcribe_one_track(mix_id: str, track_index: int):
+    """Re-run Whisper on a single track from a mix. Smart-merges with LRCLIB
+    (uses LRCLIB text + Whisper timing) when LRCLIB has the track.
+    """
+    from lyrics_service import _cache_key as lyrics_cache_key
+    from datetime import datetime, timezone
+
+    doc = await db.mixes.find_one({"id": mix_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Mix not found")
+    tracks = doc.get("tracks") or []
+    if track_index < 0 or track_index >= len(tracks):
+        raise HTTPException(status_code=404, detail="Track index out of range")
+    t = tracks[track_index]
+    artist = (t.get("artist") or "").strip()
+    title = (t.get("title") or "").strip()
+    if not (artist or title):
+        raise HTTPException(status_code=400, detail="Track is missing artist + title")
+
+    src = doc.get("source_path") or (str(AUDIO_DIR / doc["audio_filename"]) if doc.get("audio_filename") else None)
+    if not src or not Path(src).exists():
+        raise HTTPException(status_code=400, detail="Mix has no readable audio source")
+
+    start = float(t.get("start_seconds") or 0.0)
+    next_start = (
+        float(tracks[track_index + 1]["start_seconds"]) if track_index + 1 < len(tracks) else float(doc.get("duration") or start + 240)
+    )
+    duration = max(5.0, min(next_start - start, 480.0))
+
+    from lyrics_service import lookup_lyrics
+    try:
+        existing = await lookup_lyrics(artist, title, duration)
+        lrclib_synced = existing.get("synced") or []
+        lines, words = await transcription_service.transcribe_with_word_timing(src, start, duration)
+    except transcription_service.WhisperNotConfigured as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except transcription_service.WhisperError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    if not lines:
+        raise HTTPException(status_code=502, detail="Whisper returned no usable transcription")
+
+    if lrclib_synced:
+        final_synced = transcription_service.force_align(lrclib_synced, words)
+        source = "whisper-aligned"
+    else:
+        final_synced = lines
+        source = "whisper"
+    key = lyrics_cache_key(artist, title, duration)
+    await db.track_lyrics.update_one(
+        {"key": key},
+        {"$set": {
+            "key": key,
+            "artist": artist,
+            "title": title,
+            "duration": int(round(duration)),
+            "synced": final_synced,
+            "plain": "\n".join(line["text"] for line in final_synced),
+            "source": source,
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+        }},
+        upsert=True,
+    )
+    return {
+        "lines": len(final_synced),
+        "source": source,
+        "artist": artist,
+        "title": title,
+    }
 
 
 @api_router.post("/admin/mixes/{mix_id}/generate_description", dependencies=[Depends(require_admin)])

@@ -28,25 +28,60 @@ export const AdminSettings = () => {
         llm_api_key: "",
         llm_model: "",
         llm_enabled: true,
+        whisper_base_url: "",
+        whisper_api_key: "",
+        whisper_model: "",
+        whisper_enabled: false,
+        whisper_language: "",
     });
     const [showKey, setShowKey] = useState(false);
+    const [showWhisperKey, setShowWhisperKey] = useState(false);
     const [saving, setSaving] = useState(false);
     const [testing, setTesting] = useState(false);
     const [testResult, setTestResult] = useState(null);
+    const [testingWhisper, setTestingWhisper] = useState(false);
+    const [whisperResult, setWhisperResult] = useState(null);
 
     useEffect(() => {
         api.getSettings().then((s) => {
             setSettings(s);
             setForm({
                 llm_base_url: s.llm_base_url || "",
-                llm_api_key: "", // never preload secrets
+                llm_api_key: "",
                 llm_model: s.llm_model || "",
                 llm_enabled: !!s.llm_enabled,
+                whisper_base_url: s.whisper_base_url || "",
+                whisper_api_key: "",
+                whisper_model: s.whisper_model || "",
+                whisper_enabled: !!s.whisper_enabled,
+                whisper_language: s.whisper_language || "",
             });
         }).catch(() => toast.error("Failed to load settings"));
     }, []);
 
     if (!token) return <Navigate to="/admin/login" replace />;
+
+    const runWhisperTest = async () => {
+        setTestingWhisper(true);
+        setWhisperResult(null);
+        try {
+            const res = await api.testWhisper();
+            setWhisperResult(res);
+            if (res.ok) {
+                toast.success(`WHISPER REACHED · ${res.available_models?.length || 0} MODELS`, {
+                    description: res.model_in_list === false
+                        ? `WARNING: configured model "${res.configured_model}" not in available list`
+                        : `Configured: ${res.configured_model} · lang: ${res.language}`,
+                });
+            } else {
+                toast.error("WHISPER UNREACHABLE", { description: res.error });
+            }
+        } catch (err) {
+            toast.error(err.response?.data?.detail || "Test failed");
+        } finally {
+            setTestingWhisper(false);
+        }
+    };
 
     const set = (k) => (e) =>
         setForm({ ...form, [k]: e?.target?.type === "checkbox" ? e.target.checked : e.target.value });
@@ -56,9 +91,10 @@ export const AdminSettings = () => {
         try {
             const patch = { ...form };
             if (!patch.llm_api_key) delete patch.llm_api_key; // empty -> keep existing
+            if (!patch.whisper_api_key) delete patch.whisper_api_key;
             const updated = await api.updateSettings(patch);
             setSettings(updated);
-            setForm((f) => ({ ...f, llm_api_key: "" }));
+            setForm((f) => ({ ...f, llm_api_key: "", whisper_api_key: "" }));
             toast.success("SETTINGS SAVED");
         } catch (err) {
             toast.error(err.response?.data?.detail || "Save failed");
@@ -230,6 +266,151 @@ export const AdminSettings = () => {
                             </div>
                         ) : (
                             <div className="font-mono text-xs text-zinc-300">{testResult.error}</div>
+                        )}
+                    </div>
+                )}
+            </section>
+
+            {/* ===== WHISPER SECTION ===== */}
+            <section
+                className="border border-[#1A1D2E] bg-[#0a0c14] p-5 md:p-6 space-y-5 mt-6 scanlines relative"
+                data-testid="whisper-settings-section"
+            >
+                <div className="flex items-center gap-2">
+                    <Server className="w-4 h-4 text-neon-green" />
+                    <span className="label text-neon-green">// LOCAL WHISPER ENDPOINT</span>
+                    <span className="ml-auto label text-zinc-500">OpenAI-compatible · Speaches / faster-whisper / vLLM</span>
+                </div>
+                <p className="font-mono text-[11px] text-zinc-500 leading-relaxed">
+                    When enabled, Whisper runs <span className="text-neon-cyan">automatically during track analysis</span>.
+                    It smart-merges with LRCLIB lyrics (using LRCLIB text + Whisper timing for force-alignment).
+                    For tracks not in LRCLIB, Whisper provides full text + timing. Single tracks can also be
+                    re-transcribed on demand from the lyrics HUD.
+                </p>
+
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                        type="checkbox"
+                        checked={form.whisper_enabled}
+                        onChange={set("whisper_enabled")}
+                        data-testid="whisper-enabled-toggle"
+                        className="w-4 h-4 accent-neon-green"
+                    />
+                    <span className="label">WHISPER ENABLED</span>
+                    <span className="font-mono text-[11px] text-zinc-500 ml-2">Off by default - opt-in feature.</span>
+                </label>
+
+                <Field
+                    label="BASE URL"
+                    hint="e.g. http://localhost:8000/v1 (Speaches default), http://localhost:9000/v1 (faster-whisper-server). Must include /v1."
+                >
+                    <Input
+                        value={form.whisper_base_url}
+                        onChange={set("whisper_base_url")}
+                        placeholder="http://localhost:8000/v1"
+                        data-testid="whisper-base-url-input"
+                    />
+                </Field>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Field
+                        label="MODEL"
+                        hint="e.g. Systran/faster-whisper-large-v3 (best quality), nvidia/parakeet-tdt-0.6b-v2 (fastest)."
+                    >
+                        <Input
+                            value={form.whisper_model}
+                            onChange={set("whisper_model")}
+                            placeholder="Systran/faster-whisper-large-v3"
+                            data-testid="whisper-model-input"
+                        />
+                    </Field>
+                    <Field
+                        label="LANGUAGE"
+                        hint="Blank = auto-detect. Use ISO-639-1 codes (en, es, fr, de, ja). Auto is fine for most."
+                    >
+                        <Input
+                            value={form.whisper_language}
+                            onChange={set("whisper_language")}
+                            placeholder="(auto)"
+                            data-testid="whisper-language-input"
+                        />
+                    </Field>
+                </div>
+
+                <Field
+                    label="API KEY (OPTIONAL)"
+                    hint={settings.whisper_api_key_set
+                        ? "A key is currently set. Leave blank to keep it; type a new one to replace."
+                        : "Most local Whisper servers don't need a key. Leave blank for Speaches/faster-whisper."}
+                >
+                    <div className="relative">
+                        <Input
+                            type={showWhisperKey ? "text" : "password"}
+                            value={form.whisper_api_key}
+                            onChange={set("whisper_api_key")}
+                            placeholder={settings.whisper_api_key_set ? "•••••••• (unchanged)" : "(none)"}
+                            data-testid="whisper-api-key-input"
+                        />
+                        <button
+                            type="button"
+                            onClick={() => setShowWhisperKey((v) => !v)}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-neon-green"
+                            tabIndex={-1}
+                        >
+                            {showWhisperKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                    </div>
+                </Field>
+
+                <div className="flex flex-wrap items-center gap-3 pt-2">
+                    <button
+                        onClick={save}
+                        disabled={saving}
+                        data-testid="save-whisper-settings-button"
+                        className="bg-neon-green text-black font-display font-black tracking-widest uppercase px-5 py-2.5 hover:bg-white transition-colors disabled:opacity-30 flex items-center gap-2 shadow-[0_0_20px_rgba(57,255,20,0.3)]"
+                    >
+                        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                        {saving ? "SAVING…" : "SAVE"}
+                    </button>
+                    <button
+                        onClick={runWhisperTest}
+                        disabled={testingWhisper || !form.whisper_enabled}
+                        data-testid="test-whisper-button"
+                        className="bg-transparent text-neon-cyan font-display font-bold tracking-widest uppercase px-5 py-2.5 border border-neon-cyan/40 hover:bg-neon-cyan/10 transition-colors disabled:opacity-30 flex items-center gap-2"
+                    >
+                        {testingWhisper ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                        TEST CONNECTION
+                    </button>
+                </div>
+
+                {whisperResult && (
+                    <div
+                        data-testid="whisper-test-result"
+                        className={`mt-3 border p-3 ${whisperResult.ok ? "border-neon-green/40 bg-neon-green/5" : "border-neon-red/40 bg-neon-red/5"}`}
+                    >
+                        <div className="flex items-center gap-2 mb-1.5">
+                            {whisperResult.ok ? (
+                                <CheckCircle2 className="w-4 h-4 text-neon-green" />
+                            ) : (
+                                <AlertTriangle className="w-4 h-4 text-neon-red" />
+                            )}
+                            <span className={`label ${whisperResult.ok ? "text-neon-green" : "text-neon-red"}`}>
+                                {whisperResult.ok ? "REACHABLE" : "UNREACHABLE"}
+                            </span>
+                        </div>
+                        {whisperResult.ok ? (
+                            <div className="font-mono text-xs text-zinc-300 space-y-1">
+                                <div>BASE: <span className="text-neon-cyan">{whisperResult.base_url}</span></div>
+                                <div>MODEL: <span className="text-neon-cyan">{whisperResult.configured_model}</span>{whisperResult.model_in_list === false ? <span className="text-neon-red ml-2">⚠ NOT IN AVAILABLE LIST</span> : null}</div>
+                                <div>LANGUAGE: <span className="text-neon-cyan">{whisperResult.language}</span></div>
+                                {whisperResult.available_models?.length > 0 && (
+                                    <div>
+                                        AVAILABLE: <span className="text-zinc-400">{whisperResult.available_models.slice(0, 6).join(", ")}{whisperResult.available_models.length > 6 ? "…" : ""}</span>
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="font-mono text-xs text-zinc-300">{whisperResult.error}</div>
                         )}
                     </div>
                 )}
