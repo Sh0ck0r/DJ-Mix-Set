@@ -23,6 +23,9 @@ export const api = {
     waveform: (id) => client.get(`/mixes/${id}/waveform`).then((r) => r.data),
     trackArtwork: (artist, title) =>
         client.get("/tracks/artwork", { params: { artist: artist || "", title: title || "" } }).then((r) => r.data),
+    trackLyrics: (artist, title, duration) =>
+        client.get("/tracks/lyrics", { params: { artist: artist || "", title: title || "", duration: duration || undefined } }).then((r) => r.data),
+    setManualLyrics: (body) => client.post("/admin/tracks/lyrics", body).then((r) => r.data),
 
     login: (password) => client.post("/auth/login", { password }).then((r) => r.data),
     verify: () => client.get("/auth/verify").then((r) => r.data),

@@ -35,6 +35,7 @@ from audio_analysis import compute_waveform_peaks
 from cache import cache
 from artwork import lookup_track_artwork
 from cue import parse_cue
+from lyrics_service import lookup_lyrics, set_manual as set_manual_lyrics
 from models import (
     LoginRequest,
     LoginResponse,
@@ -93,6 +94,33 @@ def require_admin(creds: Optional[HTTPAuthorizationCredentials] = Depends(securi
 async def track_artwork(artist: str = "", title: str = "", refresh: int = 0):
     """Cascading artwork lookup: iTunes -> MusicBrainz -> Discogs. Cached."""
     return await lookup_track_artwork(artist, title, refresh=bool(refresh))
+
+
+# ===== Lyrics lookup (LRCLIB) =====
+@api_router.get("/tracks/lyrics")
+async def track_lyrics(
+    artist: str = "",
+    title: str = "",
+    duration: Optional[float] = None,
+    refresh: int = 0,
+):
+    """Synced-lyrics lookup via LRCLIB. Returns {synced, plain, source, found, cached}."""
+    return await lookup_lyrics(artist, title, duration, refresh=bool(refresh))
+
+
+class LyricsManualBody(BaseModel):
+    artist: str
+    title: str
+    duration: Optional[float] = None
+    plain: str = ""
+    synced: str = ""  # raw LRC text - we parse it server-side
+
+
+@api_router.post("/admin/tracks/lyrics", dependencies=[Depends(require_admin)])
+async def set_manual_track_lyrics(body: LyricsManualBody):
+    if not body.artist and not body.title:
+        raise HTTPException(status_code=400, detail="artist or title required")
+    return await set_manual_lyrics(body.artist, body.title, body.duration, body.plain, body.synced)
 
 
 # ===== Public routes =====

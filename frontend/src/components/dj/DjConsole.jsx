@@ -6,6 +6,7 @@ import { MixerChannel } from "./MixerChannel";
 import { Crossfader } from "./Crossfader";
 import { PerformancePads } from "./PerformancePads";
 import { FullWaveform, ZoomedWaveform } from "./DualWaveform";
+import { LyricsDisplay } from "./LyricsDisplay";
 import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX } from "lucide-react";
 
 export const DjConsole = ({ mix, onPlayToggle, onSeek, isCurrent }) => {
@@ -115,6 +116,11 @@ export const DjConsole = ({ mix, onPlayToggle, onSeek, isCurrent }) => {
                 <div className="mt-1">
                     <FullWaveform mixId={mix.id} currentTime={time} duration={dur} tracks={tracks} onSeek={onSeek} height={36} peaks={peaks} />
                 </div>
+                <LyricsDisplay
+                    track={activeTrack}
+                    currentTime={time}
+                    bpm={masterBpm}
+                />
                 {/* Preview deck info */}
                 <div className="flex items-center justify-between mt-1">
                     <div className="flex items-center gap-2 min-w-0">
